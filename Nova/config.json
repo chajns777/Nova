@@ -1,0 +1,17 @@
+{
+    "name": "Nova",
+    "model": "qwen3-vl:4b-instruct",
+    "vision_model": "",
+    "speaking_style": "Calm, warm and a little witty. Talks like a close friend.",
+    "max_history_messages": 14,
+    "max_steps": 6,
+    "num_ctx": 8192,
+    "num_predict": 900,
+    "temperature": 0.7,
+    "keep_alive": "30m",
+    "web_enabled": true,
+    "auto_learn": true,
+    "window": "auto",
+    "window_width": 1120,
+    "window_height": 780
+}

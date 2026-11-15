@@ -1,0 +1,9 @@
+ollama>=0.5.1
+requests
+beautifulsoup4
+ddgs
+pypdf
+python-docx
+openpyxl
+pillow
+pyflakes

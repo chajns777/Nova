@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="theme-color" content="#000000">
+<meta name="nova-token" content="__NOVA_TOKEN__">
+<title>Nova</title>
+<link rel="icon" href="/logo.svg" type="image/svg+xml">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/style.css">
+</head>
+<body>
+<div id="app">
+  <aside class="side">
+    <div class="brand"><span class="logo" id="brandLogo"></span><span class="wordmark" id="brandName">Nova</span></div>
+    <nav class="rail" id="rail">
+      <button class="rail-btn active" data-panel="chat"><span class="k">1</span>chat</button>
+      <button class="rail-btn" data-panel="memory"><span class="k">2</span>memory</button>
+      <button class="rail-btn" data-panel="skills"><span class="k">3</span>skills</button>
+      <button class="rail-btn" data-panel="files"><span class="k">4</span>files</button>
+      <button class="rail-btn" data-panel="settings"><span class="k">5</span>settings</button>
+    </nav>
+    <div class="side-foot">
+      <div class="pill loading" id="pill"><i class="led"></i><span id="pillText">starting…</span></div>
+      <div class="sys-clock"><span id="clkTime">--:--</span> <span id="clkDate"></span></div>
+    </div>
+  </aside>
+
+  <main>
+    <div id="banner" class="banner hidden"></div>
+    <section class="scroll" id="scroll">
+      <div class="hero" id="hero"></div>
+      <div class="col" id="col"></div>
+    </section>
+    <footer class="composer">
+      <div class="chips" id="chips"></div>
+      <div class="box">
+        <label class="ps" id="promptLabel" for="input">you@nova:~ #</label>
+        <textarea id="input" rows="1" placeholder="type a message" autofocus spellcheck="false"></textarea>
+        <button class="ibtn" id="attach" title="Attach files or images" data-icon="attach"></button>
+        <button class="ibtn" id="send" title="Send" data-icon="send" disabled></button>
+      </div>
+      <div class="hint">enter: send · shift+enter: new line · drop or paste files anywhere</div>
+    </footer>
+  </main>
+
+  <aside class="drawer" id="drawer">
+    <header>
+      <h2 id="drawerTitle"></h2>
+      <button class="ibtn" id="drawerClose" data-icon="close" title="Close (Esc)"></button>
+    </header>
+    <div class="drawer-body" id="drawerBody"></div>
+  </aside>
+
+  <div class="drop hidden" id="drop"><div>drop to share with Nova</div></div>
+</div>
+<input type="file" id="file" multiple hidden>
+<script src="/app.js"></script>
+</body>
+</html>
