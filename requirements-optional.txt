@@ -1,4 +1,4 @@
-pymupdf                   # lets Hoshi look at scanned PDFs page by page
-faster-whisper            # lets Hoshi listen to audio files
-opencv-python-headless    # lets Hoshi look at video frames
+pymupdf                 
+faster-whisper        
+opencv-python-head less
 pywebview                 # alternative native window (set "window": "webview" in config.json)
