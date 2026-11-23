@@ -16,7 +16,6 @@ import ollama
 
 from .config import CONFIG
 
-
 class OllamaDown(Exception):
     pass
 
@@ -60,7 +59,6 @@ class LLM:
         self._pull_lock = threading.Lock()
         self.pull_state = {"active": False, "model": "", "percent": None, "status": "", "detail": "", "error": ""}
 
-    # === server / models ===
     def ping(self) -> bool:
         try:
             self.client.list()
@@ -143,7 +141,6 @@ class LLM:
         except Exception:
             self.state = "ready" if self.ping() else "offline"
 
-    # === model download (runs in the background; the UI polls /api/state) ===
     def start_pull(self, model: str) -> dict:
         model = (model or "").strip()
         if not model or len(model) > 120 or any(c.isspace() for c in model):
@@ -171,7 +168,7 @@ class LLM:
                     layers[digest] = (done or 0, total)
                 tot = sum(t for _, t in layers.values())
                 got = sum(min(d, t) for d, t in layers.values())
-                if tot:  # one overall figure across all files, not one per file
+                if tot:
                     st["percent"] = min(99, int(got * 100 / tot))
                     st["detail"] = f"{_fmt(got)} / {_fmt(tot)} - {_fmt(got / max(time.time() - t0, 0.5))}/s"
                 else:
@@ -192,7 +189,6 @@ class LLM:
         if warm:
             self.warmup()
 
-    # === chat ===
     def _options(self, extra=None) -> dict:
         o = {"num_ctx": int(CONFIG["num_ctx"]), "temperature": float(CONFIG["temperature"]),
              "num_predict": int(CONFIG["num_predict"])}

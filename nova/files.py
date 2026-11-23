@@ -62,7 +62,6 @@ def human_size(n: int) -> str:
         n /= 1024
 
 
-# === readers ===
 def _read_text(path: str) -> str:
     raw = open(path, "rb").read(MAX_STORE_CHARS * 2)
     for enc in ("utf-8-sig", "utf-16", "cp1252"):
@@ -231,7 +230,6 @@ def prepare_image(path: str, out_path: str, max_side: int = 1024) -> str:
         return path
 
 
-# === main entry ===
 def ingest(data: bytes, original_name: str) -> dict:
     """Save an upload and extract what Nova can read. Returns the file record."""
     name = safe_name(original_name)

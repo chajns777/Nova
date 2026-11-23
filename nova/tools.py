@@ -27,7 +27,6 @@ from .memory import MEM, tokens
 LEARNED = {}  
 
 
-# === helpers ===
 def save_output(filename: str, content: str) -> str:
     """Writes a file inside the 'output files' folder (the only place Nova may write)."""
     if not filename:
@@ -60,7 +59,6 @@ def _public_url(url: str) -> bool:
         return False
 
 
-# === web ===
 _search_cache = {}
 
 
@@ -173,7 +171,6 @@ def read_webpage(url: str) -> str:
         return f"Error fetching page: {e}"
 
 
-# === core tools ===
 def save_knowledge(topic: str, summary: str, source: str = "") -> str:
     if not (topic and summary):
         return "Error: need both a topic and a summary."
@@ -264,7 +261,6 @@ def read_my_tools() -> str:
     return open(LEARNED_FILE, "r", encoding="utf-8").read()[:5000]
 
 
-# === learned tools ===
 BANNED_IMPORTS = {"subprocess", "shutil", "ctypes", "multiprocessing", "importlib", "pickle", "marshal",
                   "builtins", "socket", "sys", "signal", "threading"}
 BANNED_NAMES = {"eval", "exec", "compile", "__import__", "exit", "quit", "getattr", "setattr", "delattr",
@@ -442,7 +438,6 @@ def skills_info() -> list:
     return out
 
 
-# === schemas ===
 def _fn(name, desc, props=None, required=()):
     return {"type": "function", "function": {
         "name": name, "description": desc,

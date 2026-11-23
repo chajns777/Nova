@@ -16,7 +16,6 @@ CANCEL = threading.Event()
 TURN_LOCK = threading.Lock()
 
 
-# === prompt ===
 def system_prompt() -> str:
     summary = MEM.data.get("summary", "").strip()
     return (
@@ -41,7 +40,6 @@ def system_prompt() -> str:
     )
 
 
-# === router ===
 R = lambda p: re.compile(p, re.I)
 ROUTES = [
     ("learn", R(r"\b(learn (how|to|about)|teach yourself|new (skill|ability|tool)|add (a |an )?(skill|ability|tool)|"
@@ -74,7 +72,6 @@ def wants_action(groups) -> bool:
     return any(g in groups for g in ("web", "learn", "files", "memory", "style"))
 
 
-# === background jobs ===
 class Background:
     """Runs housekeeping (learning facts, summarising) only while Nova isn't busy chatting."""
     def __init__(self):
@@ -134,7 +131,6 @@ def summarise_old_messages():
         MEM.set_summary(new, batch[-1]["id"])
 
 
-# === the turn ===
 def _status(name: str, args: dict) -> str:
     a = args or {}
     return {

@@ -9,7 +9,6 @@
     return e;
   };
 
-  // Emblem: braille-art logo, decoded into SVG dots so it scales cleanly anywhere
   const ART = [
     "⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⡀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀",
     "⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⣷⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀",
@@ -65,7 +64,6 @@
   };
   const icon = n => `<svg class="i" viewBox="0 0 24 24">${ICONS[n]}</svg>`;
 
-  // Sidebar clock
   function updateClock() {
     const now = new Date();
     const hh = String(now.getHours()).padStart(2, '0');
@@ -78,7 +76,6 @@
   updateClock();
   setInterval(updateClock, 10000);
 
-  // ------------------------------------------------------------ api
   const api = (path, body, method) => fetch(path, {
     method: method || (body !== undefined ? 'POST' : 'GET'),
     headers: { 'X-Nova-Token': TOKEN, 'Content-Type': 'application/json' },
@@ -87,7 +84,6 @@
   const getJSON = async (p) => (await api(p)).json();
   const postJSON = async (p, b) => (await api(p, b || {})).json();
 
-  // ------------------------------------------------------------ markdown (small + safe)
   const esc = s => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
   function inline(s) {
     const codes = [];
@@ -127,7 +123,6 @@
     }).join('');
   }
 
-  // ------------------------------------------------------------ elements
   const col = $('#col'), scroll = $('#scroll'), input = $('#input'), sendBtn = $('#send'),
     chipsBox = $('#chips'), pill = $('#pill'), pillText = $('#pillText'), banner = $('#banner'),
     drawer = $('#drawer'), drawerBody = $('#drawerBody'), drawerTitle = $('#drawerTitle'), app = $('#app');
@@ -137,7 +132,6 @@
 
   let S = {}, busy = false, attachments = [], panel = 'chat';
 
-  // ------------------------------------------------------------ chat view helpers
   const nearBottom = () => scroll.scrollHeight - scroll.scrollTop - scroll.clientHeight < 140;
   const toBottom = (force) => { if (force || nearBottom()) scroll.scrollTop = scroll.scrollHeight; };
   const startChat = () => app.classList.add('chatting');
@@ -200,7 +194,6 @@
     return { m, b };
   }
 
-  // ------------------------------------------------------------ status / banners
   function renderState(s) {
     S = s;
     $('#brandName').textContent = s.name;
@@ -222,14 +215,12 @@
     renderPull(s.pull);
     updateSend();
   }
-  // Only rebuild the banner when its content really changes, so progress isn't wiped by the 4s refresh.
   function showBanner(key, html) {
     if (banner.dataset.key !== key) { banner.innerHTML = html; banner.dataset.key = key; }
     banner.classList.remove('hidden');
   }
   const pullRow = (model, label) => `<div class="row"><button class="btn primary pbtn" data-model="${esc(model)}">${esc(label)}</button><div class="bar hidden pbar"><i></i></div><span class="ptxt"></span></div>`;
 
-  // ------------------------------------------------------------ model download (server does the work, we poll)
   let pullTimer = 0, wasPulling = false;
   async function startPull(model) {
     const r = await postJSON('/api/pull', { model });
@@ -255,7 +246,6 @@
     try { renderState(await getJSON('/api/state')); } catch (e) { /* server gone */ }
   }
 
-  // ------------------------------------------------------------ SSE reader
   async function readSSE(res, onEvent) {
     const reader = res.body.getReader(), dec = new TextDecoder();
     let buf = '';
@@ -271,7 +261,6 @@
     }
   }
 
-  // ------------------------------------------------------------ sending
   function updateSend() {
     const uploading = attachments.some(a => a.busy);
     sendBtn.disabled = !busy && (uploading || (!input.value.trim() && !attachments.length) || S.status === 'offline');
@@ -338,7 +327,6 @@
     updateSend(); refreshState(); toBottom();
   }
 
-  // ------------------------------------------------------------ uploads
   async function addFiles(fileList) {
     const files = [...fileList].slice(0, 6 - attachments.length);
     for (const file of files) {
@@ -373,7 +361,6 @@
     if (fs.length) { e.preventDefault(); addFiles(fs); }
   });
 
-  // ------------------------------------------------------------ input events
   input.addEventListener('input', () => { autoGrow(); updateSend(); });
   input.addEventListener('keydown', e => { if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) { e.preventDefault(); if (!busy) send(); } });
   sendBtn.onclick = () => send();
@@ -385,7 +372,6 @@
     }
   });
 
-  // ------------------------------------------------------------ drawers
   const railBtns = [...document.querySelectorAll('.rail-btn')];
   railBtns.forEach(b => b.onclick = () => (b.dataset.panel === 'chat' || (panel === b.dataset.panel && drawer.classList.contains('open'))) ? closePanel() : openPanel(b.dataset.panel));
   $('#drawerClose').onclick = closePanel;
@@ -496,7 +482,6 @@
     };
   }
 
-  // ------------------------------------------------------------ boot
   async function boot() {
     renderHero();
     try {

@@ -16,7 +16,6 @@ from nova.server import NovaServer
 from nova import tools
 
 def find_chromium():
-    """Edge / Chrome / Chromium give the cleanest app-style window with zero extra installs."""
     names = ["msedge", "microsoft-edge", "google-chrome", "chrome", "chromium", "chromium-browser", "brave"]
     for n in names:
         p = shutil.which(n)

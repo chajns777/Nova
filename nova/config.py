@@ -35,8 +35,8 @@ DEFAULT_CONFIG = {
     "window": "auto",            
     "window_width": 1120,
     "window_height": 780,
-    "chatsorter_enabled": False,   # set True and export CHATSORTER_API_KEY to turn on long-term memory
-    "chatsorter_url": "https://api.chatsorter.com",   # or http://localhost:5050 if self-hosted
+    "chatsorter_enabled": False,
+    "chatsorter_url": "https://api.chatsorter.com",
     "chatsorter_chat_id": "nova_main",
 }
 

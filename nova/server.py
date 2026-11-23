@@ -27,7 +27,6 @@ class Handler(BaseHTTPRequestHandler):
     def log_message(self, *a):
         pass
 
-    # === helpers ===
     def _json(self, obj, status=200):
         body = json.dumps(obj, ensure_ascii=False).encode()
         self.send_response(status)
@@ -74,7 +73,6 @@ class Handler(BaseHTTPRequestHandler):
             agent.CANCEL.set()
             return False
 
-    # === GET ===
     def do_GET(self):
         if not self._host_ok():
             return self._json({"error": "bad host"}, 403)
@@ -135,7 +133,6 @@ class Handler(BaseHTTPRequestHandler):
             return
         return self._json({"error": "not found"}, 404)
 
-    # === POST ===
     def do_POST(self):
         if not self._host_ok():
             return self._json({"error": "bad host"}, 403)
@@ -224,7 +221,6 @@ class Handler(BaseHTTPRequestHandler):
 
         return self._json({"error": "not found"}, 404)
 
-    # === state ===
     def state(self) -> dict:
         up = LLM_.ping() if LLM_.state in ("offline", "missing", "starting") else True
         return {

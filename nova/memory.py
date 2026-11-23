@@ -51,7 +51,6 @@ class Memory:
         self.data = load_json(MEMORY_FILE, DEFAULT_MEMORY)
         self._migrate()
 
-    # === housekeeping ===
     def _migrate(self):
         d = self.data
         for k, v in DEFAULT_MEMORY.items():
@@ -65,7 +64,6 @@ class Memory:
                 m["id"] = top
             m.setdefault("ts", time.time())
         d["next_id"] = max(d.get("next_id", 1), top + 1)
-        # drop malformed file records (e.g. an empty {}) that would crash with KeyError: 'kind'
         d["files"] = [f for f in d["files"]
                       if isinstance(f, dict) and all(k in f for k in ("id", "name", "kind", "path"))]
         for n in d["notes"]:
@@ -81,7 +79,6 @@ class Memory:
         with self.lock:
             save_json(MEMORY_FILE, self.data)
 
-    # === conversation ===
     def add_exchange(self, user_text: str, reply: str, file_names=None):
         with self.lock:
             now = time.time()
@@ -131,7 +128,6 @@ class Memory:
         return [{"role": m["role"], "content": m["content"], "files": m.get("files", [])}
                 for m in self.data["history"][-limit:]]
 
-    # === facts about the user ===
     def set_fact(self, key: str, value: str) -> bool:
         key, value = norm_key(key), str(value).strip()[:160]
         if not key or not value:
@@ -159,7 +155,6 @@ class Memory:
             return "(nothing yet - get to know them naturally)"
         return "\n".join(f"- {k.replace('_', ' ')}: {v}" for k, v in facts.items())
 
-    # === notes (things learned) ===
     def add_note(self, text: str, kind: str = "note", source: str = "") -> int:
         text = " ".join(str(text).split())[:700]
         if not text:
@@ -204,7 +199,6 @@ class Memory:
         scored.sort(key=lambda x: -x[0])
         return [n for _, n in scored[:k]]
 
-    # === files ===
     def add_file(self, rec: dict):
         with self.lock:
             self.data["files"] = [f for f in self.data["files"] if f["id"] != rec["id"]]
