@@ -35,9 +35,9 @@ please thanks thank hey hello yeah yes okay""".split())
 MAX_FACTS = 80
 MAX_NOTES = 300
 
-
 def tokens(text: str) -> list:
     return [w for w in re.findall(r"[a-z0-9']{3,}", (text or "").lower()) if w not in STOP]
+
 
 
 def norm_key(key: str) -> str:
@@ -65,6 +65,9 @@ class Memory:
                 m["id"] = top
             m.setdefault("ts", time.time())
         d["next_id"] = max(d.get("next_id", 1), top + 1)
+        # drop malformed file records (e.g. an empty {}) that would crash with KeyError: 'kind'
+        d["files"] = [f for f in d["files"]
+                      if isinstance(f, dict) and all(k in f for k in ("id", "name", "kind", "path"))]
         for n in d["notes"]:
             n.setdefault("id", self._take_id())
         self.save()
