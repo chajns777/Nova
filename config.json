@@ -13,5 +13,8 @@
     "auto_learn": true,
     "window": "auto",
     "window_width": 1120,
-    "window_height": 780
+    "window_height": 780,
+    "chatsorter_enabled": false,
+    "chatsorter_url": "https://api.chatsorter.com",
+    "chatsorter_chat_id": "nova_main"
 }

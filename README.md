@@ -322,3 +322,11 @@ Nova has no automated test suite yet. A quick manual smoke test:
 ## Licence
 
 This project is licensed under the MIT Licence. See the [LICENSE](LICENSE) file for details.
+
+## ChatSorter long-term memory (optional)
+
+1. Get an API key at chatsorter.com (or self-host) and set the environment variable `CHATSORTER_API_KEY`.
+2. In `config.json` set `"chatsorter_enabled": true` (and `chatsorter_url` if self-hosting, e.g. `http://localhost:5050`).
+3. Restart Nova. Each message is stored via ChatSorter and relevant memories are added to every turn's context.
+
+Note: with the hosted API your messages leave your computer. Self-host to keep everything local.

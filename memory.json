@@ -2,9 +2,14 @@
     "history": [],
     "summary": "",
     "summary_upto": 0,
-    "user_facts": {},
+    "user_facts": {
+        "name": "Chajns",
+        "age": "highschool",
+        "hobby": "programming",
+        "created": "you"
+    },
     "notes": [],
     "files": [],
     "version_history": [],
-    "next_id": 7
+    "next_id": 9
 }

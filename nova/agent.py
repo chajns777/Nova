@@ -6,7 +6,7 @@ import re
 import threading
 import time
 
-from . import files as filelib, tools, codecheck
+from . import files as filelib, tools, codecheck, chatsorter
 from .config import CONFIG
 from .llm import LLM_, ModelMissing, OllamaDown
 from .memory import MEM
@@ -158,6 +158,9 @@ def _build_user_turn(text: str, recs: list, can_see: bool):
     notes = MEM.retrieve(text)
     if notes:
         ctx.append("Things you remember that may be relevant:\n" + "\n".join(f"- {n['text']}" for n in notes))
+    cs = chatsorter.recall(text)
+    if cs:
+        ctx.append("Long-term memory (from past conversations):\n" + "\n".join(f"- {m}" for m in cs))
     older = MEM.files_summary(6)
     if older:
         ctx.append("Files shared earlier:\n" + older)
@@ -305,6 +308,8 @@ def run_turn(user_text: str, file_ids: list, emit):
         if CONFIG.get("auto_learn", True) and PERSONAL.search(user_text) and len(user_text) < 1500:
             BG.submit(learn_from_message, user_text)
         BG.submit(summarise_old_messages)
+        BG.submit(chatsorter.store, "user", user_text)
+        BG.submit(chatsorter.store, "assistant", reply)
         return reply
     except OllamaDown:
         emit({"t": "error", "code": "offline",
