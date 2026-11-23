@@ -1,6 +1,6 @@
 # Nova
 
-A private, local-first AI desktop companion written in Python. Nova runs entirely on your own machine through [Ollama](https://ollama.com): she chats like a person, remembers what you tell her, researches the web, reads your documents and images, checks your code, and can teach herself new skills. No cloud account, no API keys, no data leaving your computer (except the web searches you let her make).
+A private, local-first AI desktop companion written in Python. Nova runs entirely on your own machine through [Ollama](https://ollama.com): she chats like a person, remembers what you tell her, researches the web, reads your documents and images, checks your code, and can teach herself new skills. No cloud account, no API keys, no data leaving your computer (except the web searches you let her make, and your conversation text if you choose to switch on the optional hosted [ChatSorter](#chatsorter-long-term-memory-optional) memory).
 
 ---
 
@@ -16,6 +16,7 @@ A private, local-first AI desktop companion written in Python. Nova runs entirel
   - [Status and error messages](#status-and-error-messages)
 - [Built-in abilities](#built-in-abilities)
 - [Self-learning skills](#self-learning-skills)
+- [ChatSorter long-term memory (optional)](#chatsorter-long-term-memory-optional)
 - [Security model](#security-model)
 - [Architecture](#architecture)
   - [Project structure](#project-structure)
@@ -29,6 +30,7 @@ A private, local-first AI desktop companion written in Python. Nova runs entirel
 
 - **Fully local:** The language model runs through Ollama on your own hardware. Conversations, memory and files are stored in plain JSON next to the app.
 - **Persistent memory:** Nova extracts durable facts about you (name, job, projects, preferences) after you chat, keeps a rolling summary of older conversation, and recalls relevant notes when they matter. Everything is viewable and deletable from the Memory panel.
+- **Optional long-term memory:** Connect [ChatSorter](#chatsorter-long-term-memory-optional) (hosted or self-hosted) and Nova stores your conversations there, then pulls relevant memories from past chats into each reply. Off by default, and if the service is down she simply carries on with her built-in memory.
 - **Web research:** Searches the web and reads pages, with automatic fallback between DuckDuckGo (`ddgs`), DuckDuckGo HTML and Wikipedia. Results are cached for ten minutes.
 - **Files, images and media:** Drag and drop PDFs, Word documents, spreadsheets, code, images, audio and video. Long documents are never stuffed into the prompt; Nova picks the passages that match your question and can read further on demand.
 - **Code checking:** Static checks for Python (syntax plus `pyflakes` and common-pitfall rules), JSON and JavaScript. Nothing you share is ever executed.
@@ -127,7 +129,7 @@ Large documents are stored in full (up to two million characters) but only the m
 
 ### Configuration
 
-Most settings live in the **settings** panel. Everything else is in `config.json`, which is created with defaults on first run and merged with any new keys after updates.
+Most settings live in the **settings** panel. Everything else, including the ChatSorter keys, is in `config.json` only, which is created with defaults on first run and merged with any new keys after updates.
 
 | Key | Default | Description |
 | --- | --- | --- |
@@ -145,6 +147,9 @@ Most settings live in the **settings** panel. Everything else is in `config.json
 | `auto_learn` | `true` | Quietly extract facts about you from your messages. |
 | `window` | `"auto"` | `auto`, `app` (Chromium app window), `webview` (native window), or any other value for your default browser. |
 | `window_width` / `window_height` | `1120` / `780` | Window size. |
+| `chatsorter_enabled` | `false` | Turn on [ChatSorter](#chatsorter-long-term-memory-optional) long-term memory. Also needs the `CHATSORTER_API_KEY` environment variable. |
+| `chatsorter_url` | `"https://api.chatsorter.com"` | ChatSorter server. Change it to your own address if you self-host, e.g. `http://localhost:5050`. |
+| `chatsorter_chat_id` | `"nova_main"` | Identifier your memories are filed under (used as both the chat and user ID). Keep it the same to keep your memories; change it to start a fresh memory. |
 
 **Choosing a model:** on a weaker PC try `qwen3-vl:2b-instruct`; on a stronger GPU, use a larger `qwen3-vl` size. Any Ollama model works. If it cannot call tools or see images, Nova adapts, and you can nominate a separate `vision_model`.
 
@@ -224,6 +229,55 @@ You can inspect every skill's source and roll back to any backup from the **skil
 
 ---
 
+## ChatSorter long-term memory (optional)
+
+Nova's built-in memory (facts, notes and a rolling summary in `memory.json`) works with no setup. [ChatSorter](https://chatsorter.com) adds a second layer on top: every exchange is stored in a ChatSorter memory, and before each reply Nova asks it for anything relevant from past conversations. Those memories appear in her context as *"Long-term memory (from past conversations)"*, alongside her own notes. It is off by default.
+
+### Setup
+
+1. Get an API key from [chatsorter.com](https://chatsorter.com), or run your own ChatSorter server.
+2. Put the key in an environment variable. Never put it in `config.json`.
+
+   ```bash
+   # macOS / Linux
+   export CHATSORTER_API_KEY=your_key
+
+   # Windows (PowerShell), then open a new terminal
+   setx CHATSORTER_API_KEY "your_key"
+   ```
+
+   If you launch Nova by double-clicking `Nova.bat`, a `setx` value only reaches it after you sign out and back in. As a shortcut you can add `set CHATSORTER_API_KEY=your_key` on a line above `python Nova.py` in `Nova.bat`, but that stores the key in a file, so never share or commit it.
+3. In `config.json`, set `"chatsorter_enabled": true`. If you self-host, also set `chatsorter_url` (for example `http://localhost:5050`).
+4. Restart Nova.
+
+ChatSorter is active only when **both** `chatsorter_enabled` is `true` **and** `CHATSORTER_API_KEY` is set. If either is missing, Nova behaves exactly as before and makes no network calls to ChatSorter.
+
+### What happens on each turn
+
+| When | What Nova sends | What she does with the result |
+| --- | --- | --- |
+| **Before replying** | Your message (first 1,000 characters) to `/search`. | Adds up to six returned memory summaries to the turn's context. |
+| **After replying** | Your message and her reply, each cut to 4,000 characters, to `/process`. | Nothing. This runs in the background queue, only once Nova is idle. |
+
+Only the text of the conversation is sent. Files you attach, their extracted text, and the contents of `memory.json` are not.
+
+### Privacy
+
+With the hosted API, your messages and Nova's replies leave your computer and are stored by ChatSorter. Nova's introduction to the model still says everything stays on your machine, so keep that in mind when you enable it. To keep everything local, self-host ChatSorter and point `chatsorter_url` at it. To stop sending anything, set `chatsorter_enabled` back to `false`.
+
+### If ChatSorter is slow or down
+
+Every call fails soft: errors are printed to the terminal as `[chatsorter] store failed: ...` or `[chatsorter] recall failed: ...`, and Nova carries on with her built-in memory. Each call has an 8-second timeout. The lookup happens before Nova starts replying, so an unreachable or very slow service can delay a reply by up to 8 seconds. Refused connections fail instantly, so the delay mainly applies when the server hangs.
+
+| Symptom | Likely cause |
+| --- | --- |
+| No `[chatsorter]` messages and no long-term memories ever appear | `chatsorter_enabled` is `false`, or `CHATSORTER_API_KEY` is not visible to the process that launched Nova. |
+| `recall failed: 401` / `store failed: 401` | The API key is wrong or expired. |
+| `... Connection refused` | Self-hosted server is not running, or `chatsorter_url` is wrong. |
+| Replies feel slow after enabling it | ChatSorter is responding slowly; check the terminal for timeouts. |
+
+---
+
 ## Security model
 
 - **Local only:** The server binds to `127.0.0.1`, validates the `Host` header, and requires a random per-launch token (`X-Nova-Token`) on every API call, so no website can talk to it.
@@ -231,6 +285,7 @@ You can inspect every skill's source and roll back to any backup from the **skil
 - **Data, not instructions:** Text from files and web pages is treated as untrusted data. Nova is told never to follow instructions found inside it.
 - **Nothing is executed from your files:** Shared code is only ever statically analysed.
 - **Confined writes:** Nova writes files only inside `output files/`, and filenames are sanitised.
+- **ChatSorter is the exception:** When enabled with the hosted API, conversation text is sent to a third party. The API key is read from the `CHATSORTER_API_KEY` environment variable only and is never written to `config.json` or `memory.json`.
 - **Guardrail, not a sandbox:** The skill validator is an allow-list check, not an isolated runtime. Skim new skills in the Skills panel before relying on them.
 
 ---
@@ -253,6 +308,7 @@ Nova/
 │   ├── agent.py                 # System prompt, tool routing, streaming turn loop, background learning
 │   ├── llm.py                   # Ollama client: streaming, capabilities, warm-up, model pulls
 │   ├── memory.py                # Facts, notes, rolling summary and relevance retrieval
+│   ├── chatsorter.py            # Optional ChatSorter client: store exchanges, recall long-term memories
 │   ├── tools.py                 # Built-in tools, web access, self-learning pipeline and backups
 │   ├── files.py                 # Ingestion and text extraction for documents, images, audio and video
 │   ├── codecheck.py             # Static checks for Python, JSON and JavaScript
@@ -284,7 +340,7 @@ Created at runtime: `uploads/`, `output files/`, `backups/`, `learned_tools.py` 
     ├──▶ Check Ollama is up and the model is installed
     ├──▶ LLM_.capabilities()      Detect tools / vision / thinking support
     ├──▶ route()                  Regex-match the message to tool groups
-    ├──▶ _build_user_turn()       Inject time, relevant notes, file excerpts and code checks
+    ├──▶ _build_user_turn()       Inject time, relevant notes, ChatSorter memories (if enabled), file excerpts and code checks
     ├──▶ Step loop (≤ max_steps)
     │      ├── stream_chat() ──▶ tokens to the UI
     │      ├── tool calls ─────▶ tools.execute() ──▶ status events + results back to the model
@@ -292,7 +348,8 @@ Created at runtime: `uploads/`, `output files/`, `backups/`, `learned_tools.py` 
     ├──▶ MEM.add_exchange()       Persist the conversation
     └──▶ Background queue         (runs only while Nova is idle)
            ├── learn_from_message()      Extract durable facts about you
-           └── summarise_old_messages()  Fold older messages into the rolling summary
+           ├── summarise_old_messages()  Fold older messages into the rolling summary
+           └── chatsorter.store()        Send your message and her reply to ChatSorter (if enabled)
 ```
 
 ---
@@ -316,17 +373,10 @@ Nova has no automated test suite yet. A quick manual smoke test:
 2. Say "Hi, I'm Sam and I like climbing", then open **memory** and check the fact was learned.
 3. Ask "What's the weather like in London today?" and confirm a web search runs.
 4. Drop in a PDF and ask about a specific page.
+5. *(ChatSorter only)* With it enabled, tell Nova something memorable, restart her, clear the chat from the **memory** panel, then ask about it. A correct answer that her own notes don't explain suggests the long-term memory is working. Watch the terminal for `[chatsorter]` errors.
 
 ---
 
 ## Licence
 
 This project is licensed under the MIT Licence. See the [LICENSE](LICENSE) file for details.
-
-## ChatSorter long-term memory (optional)
-
-1. Get an API key at chatsorter.com (or self-host) and set the environment variable `CHATSORTER_API_KEY`.
-2. In `config.json` set `"chatsorter_enabled": true` (and `chatsorter_url` if self-hosting, e.g. `http://localhost:5050`).
-3. Restart Nova. Each message is stored via ChatSorter and relevant memories are added to every turn's context.
-
-Note: with the hosted API your messages leave your computer. Self-host to keep everything local.
