@@ -100,7 +100,12 @@
   const getJSON = async (p) => (await api(p)).json();
   const postJSON = async (p, b) => (await api(p, b || {})).json();
 
-  const esc = s => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  const esc = s => s
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
   function inline(s) {
     const codes = [];
     s = esc(s).replace(/`([^`\n]+)`/g, (m, c) => { codes.push(c); return `\u0001${codes.length - 1}\u0001`; });
