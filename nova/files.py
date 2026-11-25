@@ -94,7 +94,7 @@ def _read_text(path: str) -> str:
     safe_path = os.path.join(root, filename)
     resolved = os.path.realpath(safe_path)
     if os.path.commonpath((root, resolved)) != root:
-        raise ValueError("File is outside the uploads directory.").
+        raise ValueError("File is outside the uploads directory.")
     if os.path.islink(safe_path):
         raise ValueError("Symbolic links are not permitted.")
     if not os.path.isfile(resolved):
