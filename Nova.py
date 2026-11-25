@@ -15,6 +15,7 @@ from nova.llm import LLM_
 from nova.server import NovaServer
 from nova import tools
 
+
 def find_chromium():
     names = ["msedge", "microsoft-edge", "google-chrome", "chrome", "chromium", "chromium-browser", "brave"]
     for n in names:
