@@ -28,7 +28,6 @@ LEARNED = {}
 
 
 def save_output(filename: str, content: str) -> str:
-    """Writes a file inside the 'output files' folder (the only place Nova may write)."""
     if not filename:
         return "Error: filename cannot be empty."
     clean = filelib.safe_name(filename)
@@ -45,7 +44,6 @@ HEADERS = {
 
 
 def _public_url(url: str) -> bool:
-    """Refuse localhost / private-network URLs so web pages can't steer Nova at your own machine."""
     try:
         host = urlparse(url).hostname
         if not host:
@@ -271,7 +269,6 @@ BANNED_ATTRS = {"remove", "unlink", "rmdir", "rmtree", "removedirs", "system", "
 
 
 def validate_code(code: str):
-    """Returns an error string if the code is unsafe/invalid, else None."""
     try:
         tree = ast.parse(code)
     except SyntaxError as e:
@@ -522,7 +519,6 @@ def _build_schema(fn) -> dict:
 
 
 def schemas_for(groups, text: str = "") -> list:
-    """Tool schemas for the chosen groups, plus any learned skill that looks relevant to the message."""
     names = []
     for g in groups:
         for n in GROUPS.get(g, []):
