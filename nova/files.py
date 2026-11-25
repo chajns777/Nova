@@ -87,13 +87,24 @@ def _assert_within_upload_dir(path: str) -> str:
     return candidate
 
 def _read_text(path: str) -> str:
-    path = _assert_within_upload_dir(path)
-    with open(path, "rb") as f:
+    filename = os.path.basename(os.fspath(path))
+    if not re.fullmatch(r"[0-9a-f]{32}\.[a-z0-9]{1,10}", filename):
+        raise ValueError("Invalid upload filename.")
+    root = os.path.realpath(UPLOAD_DIR)
+    safe_path = os.path.join(root, filename)
+    resolved = os.path.realpath(safe_path)
+    if os.path.commonpath((root, resolved)) != root:
+        raise ValueError("File is outside the uploads directory.").
+    if os.path.islink(safe_path):
+        raise ValueError("Symbolic links are not permitted.")
+    if not os.path.isfile(resolved):
+        raise ValueError("Upload is not a regular file.")
+    with open(resolved, "rb") as f:
         raw = f.read(MAX_STORE_CHARS * 2)
     for enc in ("utf-8-sig", "utf-16", "cp1252"):
         try:
             return raw.decode(enc)[:MAX_STORE_CHARS]
-        except (UnicodeDecodeError, UnicodeError):
+        except UnicodeDecodeError:
             continue
     return raw.decode("latin-1")[:MAX_STORE_CHARS]
 
