@@ -113,23 +113,115 @@ def _read_pdf(path: str, out_stem: str):
         text = "\n\n".join(parts)
     except Exception as e:
         note = f"Couldn't read the PDF text ({e})."
-    if len(text) < 40 * max(1, min(pages, 5)):  
+    if len(text) < 40 * max(1, min(pages, 5)):
         try:
-            import fitz 
+            import fitz
+            MAX_PAGE_PX = 2400
+            MAX_PAGE_PIXELS = 4_000_000  # ~12 MB RGB cap per page
             doc = fitz.open(path)
-            for i in range(min(3, len(doc))):
-                pix = doc[i].get_pixmap(dpi=110)
-                p = f"{out_stem}.page{i + 1}.png"
-                pix.save(p)
-                images.append(p)
+            try:
+                for i in range(min(3, len(doc))):
+                    page = doc[i]
+                    w, h = page.rect.width, page.rect.height
+                    if w <= 0 or h <= 0:
+                        continue
+                    scale = 110.0 / 72.0
+                    scale = min(scale, MAX_PAGE_PX / w, MAX_PAGE_PX / h, (MAX_PAGE_PIXELS / (w * h)) ** 0.5)
+                    if scale <= 0:
+                        continue
+                    pix = page.get_pixmap(matrix=fitz.Matrix(scale, scale), alpha=False)
+                    p = f"{out_stem}.page{i + 1}.png"
+                    pix.save(p)
+                    images.append(p)
+            finally:
+                doc.close()
             note = (note + " " if note else "") + \
-                f"This PDF looks scanned, so I rendered its first {len(images)} page(s) as images."
+                   f"This PDF looks scanned, so I rendered its first {len(images)} page(s) as images."
         except ImportError:
             note = (note + " " if note else "") + \
-                "This PDF has little or no text (probably scanned). Install PyMuPDF (pip install pymupdf) so I can look at the pages."
+                   "This PDF has little or no text (probably scanned). Install PyMuPDF (pip install pymupdf) so I can look at the pages."
         except Exception as e:
             note = f"{note} Couldn't render pages: {e}".strip()
-    return text, images, f"{pages} pages. {note}".strip()
+
+
+MAX_ZIP_ENTRIES = 1000
+MAX_UNCOMPRESSED_BYTES = 30 * 1024 * 1024  # 30 MB
+MAX_COMPRESSION_RATIO = 100
+
+def _check_zip_bomb(path: str):
+    if not zipfile.is_zipfile(path):
+        raise ValueError("Invalid or corrupted archive.")
+    total_uncompressed = 0
+    with zipfile.ZipFile(path, "r") as zf:
+        infos = zf.infolist()
+        if len(infos) > MAX_ZIP_ENTRIES:
+            raise ValueError("Archive contains too many entries.")
+        for info in infos:
+            if info.file_size > MAX_UNCOMPRESSED_BYTES:
+                raise ValueError("Archive entry exceeds uncompressed size limit.")
+            if info.compress_size > 0 and (info.file_size / info.compress_size) > MAX_COMPRESSION_RATIO:
+                raise ValueError("Archive compression ratio exceeds safety limit.")
+            with zf.open(info, "r") as stream:
+                while True:
+                    chunk = stream.read(65536)
+                    if not chunk:
+                        break
+                    total_uncompressed += len(chunk)
+                    if total_uncompressed > MAX_UNCOMPRESSED_BYTES:
+                        raise ValueError("Decompressed archive exceeds memory limit.")
+
+
+def _read_docx(path: str) -> str:
+    _check_zip_bomb(path)
+    import docx
+    from docx.table import Table
+    from docx.text.paragraph import Paragraph
+    d = docx.Document(path)
+    out, chars = [], 0
+    for child in d.element.body.iterchildren():
+        tag = child.tag.rsplit("}", 1)[-1]
+        line = ""
+        if tag == "p":
+            p = Paragraph(child, d)
+            t = p.text.strip()
+            if not t:
+                continue
+            style = (p.style.name or "") if p.style is not None else ""
+            if style.startswith("Heading"):
+                level = re.sub(r"\D", "", style) or "1"
+                line = "#" * min(int(level), 4) + " " + t
+            else:
+                line = t
+        elif tag == "tbl":
+            rows = [" | ".join(c.text.strip().replace("\n", " ") for c in row.cells)
+                    for row in Table(child, d).rows]
+            line = "\n".join(rows)
+        if line:
+            out.append(line)
+            chars += len(line)
+            if chars >= MAX_STORE_CHARS:
+                break
+    return "\n".join(out)[:MAX_STORE_CHARS]
+
+
+def _read_xlsx(path: str) -> str:
+    _check_zip_bomb(path)
+    from openpyxl import load_workbook
+    wb = load_workbook(path, read_only=True, data_only=True)
+    try:
+        out = []
+        for ws in wb.worksheets[:8]:
+            rows, count = [], 0
+            for row in ws.iter_rows(values_only=True):
+                count += 1
+                if count <= 60:
+                    rows.append("\t".join("" if v is None else str(v) for v in row[:20]))
+                if count >= 20000:
+                    break
+            out.append(f"## Sheet: {ws.title} ({count}{'+' if count >= 20000 else ''} rows)\n" + "\n".join(rows))
+        return "\n\n".join(out)[:MAX_STORE_CHARS]
+    finally:
+        wb.close()
 
 
 def _read_docx(path: str) -> str:

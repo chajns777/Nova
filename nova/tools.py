@@ -28,11 +28,12 @@ import re
 import shutil
 import socket
 import time
+
 from urllib.parse import urlparse, parse_qs, unquote, urljoin
-
 import requests
-from bs4 import BeautifulSoup
-
+from bs4 import BeautifulSoupfrom requests.adapters import HTTPAdapter
+from urllib3.connection import HTTPConnection, HTTPSConnection
+from urllib3.util import connection as urllib3_conn
 from . import codecheck, files as filelib
 from .config import (CONFIG, save_config, LEARNED_FILE, CANDIDATE_FILE, BACKUP_DIR, OUTPUT_DIR, MAX_BACKUPS)
 from .llm import LLM_
@@ -58,17 +59,63 @@ HEADERS = {
 
 
 def _public_url(url: str) -> bool:
-    try:
-        host = urlparse(url).hostname
-        if not host:
+    def _is_global_ip(ip_str: str) -> bool:
+        try:
+            ip = ipaddress.ip_address(ip_str)
+            if isinstance(ip, ipaddress.IPv6Address) and ip.ipv4_mapped:
+                ip = ip.ipv4_mapped
+            return ip.is_global
+        except ValueError:
             return False
-        for info in socket.getaddrinfo(host, None):
-            ip = ipaddress.ip_address(info[4][0])
-            if ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_reserved or ip.is_multicast:
-                return False
-        return True
-    except Exception:
-        return False
+
+    def _resolve_public_ip(url: str) -> str | None:
+        try:
+            parsed = urlparse(url)
+            if parsed.scheme not in ("http", "https") or not parsed.hostname:
+                return None
+            if parsed.username or parsed.password:
+                return None
+            port = parsed.port or (443 if parsed.scheme == "https" else 80)
+            infos = socket.getaddrinfo(parsed.hostname, port, type=socket.SOCK_STREAM)
+            if not infos:
+                return None
+            ips = [info[4][0] for info in infos]
+            if not all(_is_global_ip(ip) for ip in ips):
+                return None
+            return ips[0]
+        except Exception:
+            return None
+
+    class _PinnedIPAdapter(HTTPAdapter):
+
+        def __init__(self, pinned_ip: str, *args, **kwargs):
+            self._pinned_ip = pinned_ip
+            super().__init__(*args, **kwargs)
+
+        def init_poolmanager(self, connections, maxsize, block=False, **pool_kwargs):
+            pinned_ip = self._pinned_ip
+
+            class PinnedHTTPConnection(HTTPConnection):
+                def _new_conn(self):
+                    return urllib3_conn.create_connection(
+                        (pinned_ip, self.port),
+                        self.timeout,
+                        source_address=self.source_address,
+                        socket_options=self.socket_options,
+                    )
+
+            class PinnedHTTPSConnection(HTTPSConnection):
+                def _new_conn(self):
+                    return urllib3_conn.create_connection(
+                        (pinned_ip, self.port),
+                        self.timeout,
+                        source_address=self.source_address,
+                        socket_options=self.socket_options,
+                    )
+
+            super().init_poolmanager(connections, maxsize, block=block, **pool_kwargs)
+            self.poolmanager.pool_classes_by_scheme["http"].ConnectionCls = PinnedHTTPConnection
+            self.poolmanager.pool_classes_by_scheme["https"].ConnectionCls = PinnedHTTPSConnection
 
 
 _search_cache = {}
@@ -157,28 +204,35 @@ def read_webpage(url: str) -> str:
     if not url.startswith(("http://", "https://")):
         return "Error: URL must start with http:// or https://"
     try:
-        res = None
         for _ in range(4):
-            if not _public_url(url):
+            pinned_ip = _resolve_public_ip(url)
+            if not pinned_ip:
                 return "Error: that address isn't a public website, so I won't open it."
-            res = requests.get(url, headers=HEADERS, timeout=12, allow_redirects=False, stream=True)
-            if res.is_redirect and res.headers.get("location"):
-                url = urljoin(url, res.headers["location"])
-                continue
-            break
-        ctype = res.headers.get("content-type", "")
-        if "html" not in ctype and "text" not in ctype and "json" not in ctype:
-            return f"Can't read this kind of content ({ctype or 'unknown'})."
-        raw = res.raw.read(600_000, decode_content=True).decode(res.encoding or "utf-8", errors="replace")
-        if "html" not in ctype:
-            return raw[:5000]
-        soup = BeautifulSoup(raw, "html.parser")
-        for tag in soup(["script", "style", "nav", "footer", "header", "aside", "form", "noscript", "svg"]):
-            tag.decompose()
-        root = soup.find("article") or soup.find("main") or soup.body or soup
-        title = soup.title.get_text(strip=True) if soup.title else ""
-        text = re.sub(r"\s+", " ", root.get_text(" ", strip=True))
-        return (f"[{title}]\n" if title else "") + (text[:5000] or "The page had no readable text.")
+            with requests.Session() as sess:
+                adapter = _PinnedIPAdapter(pinned_ip)
+                sess.mount("http://", adapter)
+                sess.mount("https://", adapter)
+                res = sess.get(url, headers=HEADERS, timeout=12, allow_redirects=False, stream=True)
+                try:
+                    if res.is_redirect and res.headers.get("location"):
+                        url = urljoin(url, res.headers["location"])
+                        continue
+                    ctype = res.headers.get("content-type", "")
+                    if "html" not in ctype and "text" not in ctype and "json" not in ctype:
+                        return f"Can't read this kind of content ({ctype or 'unknown'})."
+                    raw = res.raw.read(600_000, decode_content=True).decode(res.encoding or "utf-8", errors="replace")
+                    if "html" not in ctype:
+                        return raw[:5000]
+                    soup = BeautifulSoup(raw, "html.parser")
+                    for tag in soup(["script", "style", "nav", "footer", "header", "aside", "form", "noscript", "svg"]):
+                        tag.decompose()
+                    root = soup.find("article") or soup.find("main") or soup.body or soup
+                    title = soup.title.get_text(strip=True) if soup.title else ""
+                    text = re.sub(r"\s+", " ", root.get_text(" ", strip=True))
+                    return (f"[{title}]\n" if title else "") + (text[:5000] or "The page had no readable text.")
+                finally:
+                    res.close()
+        return "Error: too many redirects."
     except Exception as e:
         return f"Error fetching page: {e}"
 
@@ -273,14 +327,87 @@ def read_my_tools() -> str:
     return open(LEARNED_FILE, "r", encoding="utf-8").read()[:5000]
 
 
+ALLOWED_IMPORTS = {
+    "base64", "bisect", "bs4", "calendar", "collections", "copy", "csv",
+    "dataclasses", "datetime", "decimal", "difflib", "enum", "fractions",
+    "functools", "hashlib", "heapq", "hmac", "html", "itertools", "json",
+    "math", "operator", "pprint", "random", "re", "requests", "statistics",
+    "string", "textwrap", "time", "typing", "unicodedata", "urllib", "uuid",
+    "zoneinfo",
+}
 BANNED_IMPORTS = {"subprocess", "shutil", "ctypes", "multiprocessing", "importlib", "pickle", "marshal",
-                  "builtins", "socket", "sys", "signal", "threading"}
+                  "builtins", "socket", "sys", "signal", "threading", "os", "pathlib"}
 BANNED_NAMES = {"eval", "exec", "compile", "__import__", "exit", "quit", "getattr", "setattr", "delattr",
                 "globals", "locals", "vars", "breakpoint", "input"}
 BANNED_ATTRS = {"remove", "unlink", "rmdir", "rmtree", "removedirs", "system", "popen", "Popen", "kill",
                 "chmod", "exit", "_exit", "execv", "execl", "startfile", "rename", "replace", "environ",
                 "__globals__", "__builtins__", "__subclasses__", "__class__", "__bases__", "__code__"}
 
+
+def validate_code(code: str):
+    try:
+        tree = ast.parse(code)
+    except SyntaxError as e:
+        return f"Syntax error on line {e.lineno}: {e.msg}"
+    funcs = 0
+    for node in tree.body:
+        if isinstance(node, ast.FunctionDef):
+            funcs += 1
+            doc = ast.get_docstring(node)
+            if not doc:
+                return f"Function '{node.name}' needs a docstring describing what it does."
+            if len(doc.strip().splitlines()[0]) > 100:
+                return f"The first docstring line of '{node.name}' must be a short summary (under 100 characters)."
+        elif isinstance(node, (ast.Import, ast.ImportFrom)):
+            pass
+        elif isinstance(node, ast.Expr) and isinstance(node.value, ast.Constant):
+            pass
+        elif isinstance(node, ast.Assign):
+            try:
+                ast.literal_eval(node.value)
+            except Exception:
+                return "Top-level assignments may only hold plain constants (numbers, text, lists, dicts)."
+        else:
+            return "Only imports, constants and 'def' functions are allowed at the top level."
+    if funcs == 0:
+        return "No function found. Provide at least one complete 'def' function."
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            for a in node.names:
+                top = a.name.split(".")[0]
+                if top in BANNED_IMPORTS or top not in ALLOWED_IMPORTS:
+                    return f"Import of '{a.name}' is not allowed."
+        elif isinstance(node, ast.ImportFrom):
+            if node.level and node.level > 0:
+                return "Relative imports are not allowed."
+            top = (node.module or "").split(".")[0]
+            if not top or top in BANNED_IMPORTS or top not in ALLOWED_IMPORTS:
+                return f"Import from '{node.module}' is not allowed."
+            for a in node.names:
+                sym = a.name.split(".")[0]
+                if sym == "*" or sym in BANNED_NAMES or sym in BANNED_ATTRS or sym in BANNED_IMPORTS:
+                    return f"Import of '{a.name}' from '{node.module}' is not allowed."
+        elif isinstance(node, ast.Name) and node.id in BANNED_NAMES:
+            return f"Use of '{node.id}' is not allowed."
+        elif isinstance(node, ast.Attribute) and (
+            node.attr in BANNED_ATTRS or (node.attr.startswith("__") and node.attr.endswith("__"))
+        ):
+            return f"Use of '.{node.attr}' is not allowed (no deleting, shell, exiting or poking at internals)."
+        elif isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            for expr in (*node.args.defaults, *node.args.kw_defaults, *node.decorator_list):
+                if expr is not None and any(isinstance(sub, ast.Call) for sub in ast.walk(expr)):
+                    return "Function calls in default arguments or decorators are not allowed."
+        elif isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id == "open":
+            mode = node.args[1] if len(node.args) > 1 else None
+            for kw in node.keywords:
+                if kw.arg == "mode":
+                    mode = kw.value
+            if mode is not None:
+                if not (isinstance(mode, ast.Constant) and isinstance(mode.value, str)):
+                    return "open() mode must be a plain string like 'r'."
+                if any(c in mode.value for c in "wax+"):
+                    return "Don't open files for writing. Use save_output(filename, content) instead."
+    return None
 
 def validate_code(code: str):
     try:

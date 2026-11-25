@@ -21,9 +21,10 @@ import os
 import secrets
 import threading
 import time
+
+from http.cookies import SimpleCookie
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlparse, parse_qs, unquote
-
 from . import agent, files as filelib, tools
 from .config import CONFIG, UI_DIR, save_config
 from .llm import LLM_
@@ -33,6 +34,29 @@ TOKEN = secrets.token_urlsafe(24)
 SETTINGS_TYPES = {"name": str, "speaking_style": str, "model": str, "vision_model": str,
                   "web_enabled": bool, "auto_learn": bool}
 
+STATIC_ASSETS = {
+    "/style.css": ("style.css", "text/css; charset=utf-8"),
+    "/app.js": ("app.js", "application/javascript; charset=utf-8"),
+    "/logo.svg": ("logo.svg", "image/svg+xml"),
+}
+
+SAFE_UPLOAD_MIMES = {
+    ".png": "image/png",
+    ".jpg": "image/jpeg",
+    ".jpeg": "image/jpeg",
+    ".webp": "image/webp",
+    ".gif": "image/gif",
+    ".bmp": "image/bmp",
+    ".pdf": "application/pdf",
+    ".txt": "text/plain; charset=utf-8",
+    ".md": "text/markdown; charset=utf-8",
+    ".json": "application/json; charset=utf-8",
+    ".csv": "text/csv; charset=utf-8",
+    ".mp3": "audio/mpeg",
+    ".wav": "audio/wav",
+    ".mp4": "video/mp4",
+    ".webm": "video/webm",
+}
 
 class Handler(BaseHTTPRequestHandler):
     server_version = "Nova"
@@ -69,7 +93,12 @@ class Handler(BaseHTTPRequestHandler):
 
     def _authed(self, query) -> bool:
         tok = self.headers.get("X-Nova-Token") or (query.get("t") or [""])[0]
-        return secrets.compare_digest(tok, TOKEN)
+        if not tok and self.headers.get("Cookie"):
+            cookie = SimpleCookie()
+            cookie.load(self.headers["Cookie"])
+            if "nova_session" in cookie:
+                tok = cookie["nova_session"].value
+        return bool(tok) and secrets.compare_digest(tok, TOKEN)
 
     def _sse_start(self):
         self.send_response(200)
@@ -88,27 +117,27 @@ class Handler(BaseHTTPRequestHandler):
             return False
 
     def do_GET(self):
-        if not self._host_ok():
-            return self._json({"error": "bad host"}, 403)
-        url = urlparse(self.path)
-        q = parse_qs(url.query)
-        path = url.path
-
         if path in ("/", "/index.html"):
-            html = open(os.path.join(UI_DIR, "index.html"), "r", encoding="utf-8").read()
-            body = html.replace("__NOVA_TOKEN__", TOKEN).encode()
+            if not self._authed(q):
+                return self._json({"error": "unauthorised"}, 401)
+            with open(os.path.join(UI_DIR, "index.html"), "r", encoding="utf-8") as f:
+                html = f.read()
+            body = html.replace("__NOVA_TOKEN__", TOKEN).encode("utf-8")
             self.send_response(200)
             self.send_header("Content-Type", "text/html; charset=utf-8")
             self.send_header("Content-Length", str(len(body)))
+            self.send_header("Set-Cookie", f"nova_session={TOKEN}; HttpOnly; SameSite=Strict; Path=/")
             self.send_header("Cache-Control", "no-store")
             self.end_headers()
             self.wfile.write(body)
             return
-        if path in ("/style.css", "/app.js", "/logo.svg"):
-            fp = os.path.join(UI_DIR, path.lstrip("/"))
-            body = open(fp, "rb").read()
+        if path in STATIC_ASSETS:
+            filename, content_type = STATIC_ASSETS[path]
+            fp = os.path.join(UI_DIR, filename)
+            with open(fp, "rb") as f:
+                body = f.read()
             self.send_response(200)
-            self.send_header("Content-Type", mimetypes.guess_type(fp)[0] or "application/octet-stream")
+            self.send_header("Content-Type", content_type)
             self.send_header("Content-Length", str(len(body)))
             self.send_header("Cache-Control", "no-store")
             self.end_headers()
@@ -136,11 +165,15 @@ class Handler(BaseHTTPRequestHandler):
                 return self._json({"error": "not found"}, 404)
             fp = (rec.get("images") or [rec["path"]])[0] if rec["kind"] == "image" else rec["path"]
             try:
-                body = open(fp, "rb").read()
+                with open(fp, "rb") as f:
+                    body = f.read()
             except OSError:
                 return self._json({"error": "gone"}, 404)
+            ext = os.path.splitext(fp)[1].lower()
+            content_type = SAFE_UPLOAD_MIMES.get(ext, "application/octet-stream")
             self.send_response(200)
-            self.send_header("Content-Type", mimetypes.guess_type(fp)[0] or "application/octet-stream")
+            self.send_header("Content-Type", content_type)
+            self.send_header("X-Content-Type-Options", "nosniff")
             self.send_header("Content-Length", str(len(body)))
             self.end_headers()
             self.wfile.write(body)

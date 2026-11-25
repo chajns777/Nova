@@ -24,6 +24,7 @@ import sys
 import threading
 import webbrowser
 
+from nova.server import NovaServer, TOKEN
 from nova.config import CONFIG, BASE_DIR
 from nova.llm import LLM_
 from nova.server import NovaServer
@@ -87,12 +88,13 @@ def launch_ui(url: str, httpd) -> str:
 
 def main():
     httpd = NovaServer()
-    url = f"http://127.0.0.1:{httpd.server_address[1]}/"
-    print(f"{CONFIG['name']} is starting...  ({url})")
+    base_url = f"http://127.0.0.1:{httpd.server_address[1]}/"
+    launch_url = f"{base_url}?t={TOKEN}"
+    print(f"{CONFIG['name']} is starting...  ({base_url})")
     threading.Thread(target=LLM_.warmup, daemon=True).start()
     threading.Thread(target=httpd.watch_for_close, daemon=True).start()
 
-    mode = launch_ui(url, httpd)
+    mode = launch_ui(launch_url, httpd)
     if mode == "webview":
         return
     print("Close the Nova window (or press Ctrl+C here) to quit.")
