@@ -75,8 +75,8 @@ def human_size(n: int) -> str:
             return f"{n:.0f} {unit}" if unit == "B" else f"{n:.1f} {unit}"
         n /= 1024
 
-
 def _read_text(path: str) -> str:
+    path = _assert_within_upload_dir(path)
     raw = open(path, "rb").read(MAX_STORE_CHARS * 2)
     for enc in ("utf-8-sig", "utf-16", "cp1252"):
         try:
@@ -245,9 +245,12 @@ def prepare_image(path: str, out_path: str, max_side: int = 1024) -> str:
 def ingest(data: bytes, original_name: str) -> dict:
     name = safe_name(original_name)
     fid = uuid.uuid4().hex[:10]
-    stem = os.path.join(UPLOAD_DIR, fid)
+    upload_root = os.path.realpath(UPLOAD_DIR)
+    stem = os.path.join(upload_root, fid)
     ext = os.path.splitext(name)[1].lower()
     path = f"{stem}{ext}"
+    if os.path.commonpath([upload_root, path]) != upload_root:
+        raise ValueError("Invalid upload path")
     with open(path, "wb") as f:
         f.write(data)
 
@@ -284,9 +287,12 @@ def ingest(data: bytes, original_name: str) -> dict:
         from . import codecheck
         check = codecheck.check(text, ext, name)
 
-    with open(f"{stem}.txt", "w", encoding="utf-8") as f:
+    text_path = os.path.realpath(f"{stem}.txt")
+    if os.path.commonpath([upload_root, text_path]) != upload_root:
+        raise ValueError("Invalid text path")
+    with open(text_path, "w", encoding="utf-8") as f:
         f.write(text)
-    return {"id": fid, "name": name, "kind": kind, "size": len(data), "path": path, "text_path": f"{stem}.txt",
+    return {"id": fid, "name": name, "kind": kind, "size": len(data), "path": path, "text_path": text_path,
             "images": images, "chars": len(text), "note": note, "check": check, "caption": "", "ts": time.time()}
 
 
