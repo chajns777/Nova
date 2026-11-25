@@ -88,7 +88,6 @@ class Memory:
             self.save()
 
     def _window_start(self) -> int:
-        """Start index of the context window. Moves in steps of 4 so Ollama can reuse its prompt cache."""
         h = self.data["history"]
         n = max(2, int(CONFIG["max_history_messages"]))
         if len(h) <= n:
@@ -104,7 +103,6 @@ class Memory:
         return [{"role": m["role"], "content": m["content"]} for m in h[self._window_start():]]
 
     def pending_summary_batch(self):
-        """Messages that fell out of the window and haven't been summarised yet (None if too few)."""
         with self.lock:
             h = self.data["history"]
             out = [m for m in h[:self._window_start()] if m["id"] > self.data["summary_upto"]]
@@ -206,7 +204,6 @@ class Memory:
             self.save()
 
     def get_file(self, ref: str):
-        """Find a shared file by id or (partial) name. Newest match wins."""
         ref = (ref or "").strip().lower()
         if not ref:
             return None
