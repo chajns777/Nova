@@ -169,7 +169,7 @@ def _read_pdf(path: str, out_stem: str):
 
 
 MAX_ZIP_ENTRIES = 1000
-MAX_UNCOMPRESSED_BYTES = 30 * 1024 * 1024  # 30 MB
+MAX_UNCOMPRESSED_BYTES = 250 * 1024 * 1024
 MAX_COMPRESSION_RATIO = 100
 
 def _check_zip_bomb(path: str):
