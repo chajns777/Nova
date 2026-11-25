@@ -203,7 +203,7 @@ class Handler(BaseHTTPRequestHandler):
             return self._json({"error": "unauthorised"}, 401)
 
         if path == "/api/state":
-            return self._json(self.state())
+            return self._json(self.state(with_history="history" in q))
         if path == "/api/memory":
             return self._json({"facts": MEM.data["user_facts"], "notes": MEM.data["notes"][-60:],
                                "summary": MEM.data.get("summary", "")})
@@ -342,7 +342,7 @@ class Handler(BaseHTTPRequestHandler):
 
         return self._json({"error": "not found"}, 404)
 
-    def state(self) -> dict:
+    def state(self, with_history: bool = False) -> dict:
         up = LLM_.ping() if LLM_.state in ("offline", "missing", "starting") else True
         return {
             "name": CONFIG["name"], "model": CONFIG["model"], "vision_model": CONFIG.get("vision_model", ""),
@@ -350,7 +350,7 @@ class Handler(BaseHTTPRequestHandler):
             "auto_learn": CONFIG.get("auto_learn", True),
             "status": LLM_.state if up else "offline", "can_see": LLM_.can_see() if up and LLM_.state == "ready" else None,
             "tps": LLM_.last_stats.get("tps"), "busy": agent.BUSY.is_set(),
-            "history": MEM.ui_history(), "facts": len(MEM.data["user_facts"]), "notes": len(MEM.data["notes"]),
+            "history": MEM.ui_history() if with_history else [], "facts": len(MEM.data["user_facts"]), "notes": len(MEM.data["notes"]),
             "skills": len(tools.LEARNED), "installed": LLM_.installed() if up else [],
             "chrome": self.server.chrome, "pull": dict(LLM_.pull_state),
         }
@@ -386,9 +386,16 @@ class NovaServer(ThreadingHTTPServer):
             self.request_slots.release()
 
     def watch_for_close(self):
+        prev = time.time()
         while True:
             time.sleep(1)
             now = time.time()
+            if now - prev > 30:
+                # The computer was asleep. Give the window a moment to ping again instead of
+                # treating the gap as "the window closed" and shutting Nova down.
+                if self.last_ping:
+                    self.last_ping = now
+            prev = now
             if self.bye_at and now - self.bye_at > 6:
                 break
             if self.last_ping and now - self.last_ping > 300:

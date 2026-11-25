@@ -34,6 +34,7 @@ import requests
 from bs4 import BeautifulSoup
 from requests.adapters import HTTPAdapter
 from urllib3.connection import HTTPConnection, HTTPSConnection
+from urllib3.connectionpool import HTTPConnectionPool, HTTPSConnectionPool
 from urllib3.util import connection as urllib3_conn
 from . import codecheck, files as filelib
 from .config import (CONFIG, save_config, LEARNED_FILE, CANDIDATE_FILE, BACKUP_DIR, OUTPUT_DIR, MAX_BACKUPS)
@@ -140,9 +141,16 @@ class _PinnedIPAdapter(HTTPAdapter):
                     (pinned_ip, self.port), self.timeout,
                     source_address=self.source_address, socket_options=self.socket_options)
 
+        class PinnedHTTPPool(HTTPConnectionPool):
+            ConnectionCls = PinnedHTTPConnection
+
+        class PinnedHTTPSPool(HTTPSConnectionPool):
+            ConnectionCls = PinnedHTTPSConnection
+
         super().init_poolmanager(connections, maxsize, block=block, **pool_kwargs)
-        self.poolmanager.pool_classes_by_scheme["http"].ConnectionCls = PinnedHTTPConnection
-        self.poolmanager.pool_classes_by_scheme["https"].ConnectionCls = PinnedHTTPSConnection
+        # Give THIS pool manager its own pool classes. Assigning ConnectionCls on the shared urllib3
+        # classes would pin every other requests call in the process to this IP as well.
+        self.poolmanager.pool_classes_by_scheme = {"http": PinnedHTTPPool, "https": PinnedHTTPSPool}
 
 
 def _public_url(url: str) -> bool:

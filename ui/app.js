@@ -506,7 +506,7 @@
   async function boot() {
     renderHero();
     try {
-      const s = await getJSON('/api/state');
+      const s = await getJSON('/api/state?history=1');
       renderState(s);
       (s.history || []).forEach(m => {
         if (m.role === 'user') addUser(m.content, (m.files || []).map(n => ({ name: n, kind: 'file' })));

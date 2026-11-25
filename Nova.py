@@ -24,11 +24,12 @@ import sys
 import threading
 import webbrowser
 
+if sys.version_info < (3, 10):
+    sys.exit("Nova needs Python 3.10 or newer (you have %d.%d). Please update Python." % sys.version_info[:2])
+
 from nova.server import NovaServer, TOKEN
 from nova.config import CONFIG, BASE_DIR
 from nova.llm import LLM_
-from nova.server import NovaServer
-from nova import tools
 
 
 def find_chromium():

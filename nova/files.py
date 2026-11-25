@@ -88,7 +88,7 @@ def _assert_within_upload_dir(path: str) -> str:
 
 def _read_text(path: str) -> str:
     filename = os.path.basename(os.fspath(path))
-    if not re.fullmatch(r"[0-9a-f]{32}\.[a-z0-9]{1,10}", filename):
+    if not re.fullmatch(r"[0-9a-f]{32}[\w.\- ()]{0,40}", filename):
         raise ValueError("Invalid upload filename.")
     root = os.path.realpath(UPLOAD_DIR)
     safe_path = os.path.join(root, filename)
@@ -165,6 +165,7 @@ def _read_pdf(path: str, out_stem: str):
                    "This PDF has little or no text (probably scanned). Install PyMuPDF (pip install pymupdf) so I can look at the pages."
         except Exception as e:
             note = f"{note} Couldn't render pages: {e}".strip()
+    return text, images, note
 
 
 MAX_ZIP_ENTRIES = 1000

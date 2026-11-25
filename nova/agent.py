@@ -246,8 +246,9 @@ def run_turn(user_text: str, file_ids: list, emit):
         messages = [{"role": "system", "content": system_prompt()}] + MEM.recent()
         messages.append(_build_user_turn(user_text, recs, can_see))
 
-        nudged = False
+        nudged, pending_tools = False, False
         for step in range(int(CONFIG["max_steps"])):
+            pending_tools = False
             text, calls = "", []
             for kind, val in LLM_.stream_chat(messages, tools=tool_schemas):
                 if CANCEL.is_set():
@@ -256,7 +257,7 @@ def run_turn(user_text: str, file_ids: list, emit):
                     text += val
                     emit({"t": "token", "d": val})
                 elif kind == "tools":
-                    calls = val
+                    calls.extend(val)
                 elif kind == "stats":
                     stats = val
             if CANCEL.is_set():
@@ -296,13 +297,13 @@ def run_turn(user_text: str, file_ids: list, emit):
                 if c["name"] == "update_style":
                     emit({"t": "state"})
                 messages.append({"role": "tool", "tool_name": c["name"], "content": result[:3500]})
+            pending_tools = True
             if CANCEL.is_set():
                 break
-        else:
-            if not reply.strip():
-                reply = "I hit my step limit before finishing - try splitting that into smaller asks."
 
-        if used_tools and not reply.strip() and not CANCEL.is_set():
+        # The last step may have been tool calls (step limit hit) or the model may have said nothing:
+        # either way the tool results haven't been explained to the user yet.
+        if used_tools and (pending_tools or not reply.strip()) and not CANCEL.is_set():
             messages.append({"role": "user", "content": "Now tell me the result in a sentence or two."})
             for kind, val in LLM_.stream_chat(messages, tools=None):
                 if CANCEL.is_set():
@@ -313,6 +314,8 @@ def run_turn(user_text: str, file_ids: list, emit):
                 elif kind == "stats":
                     stats = val
 
+        if used_tools and not reply.strip() and not CANCEL.is_set():
+            reply = "I hit my step limit before finishing - try splitting that into smaller asks."
         reply = reply.strip() or "…"
         MEM.add_exchange(user_text, reply, [r["name"] for r in recs])
         for r in recs:
