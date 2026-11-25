@@ -39,7 +39,6 @@ def tokens(text: str) -> list:
     return [w for w in re.findall(r"[a-z0-9']{3,}", (text or "").lower()) if w not in STOP]
 
 
-
 def norm_key(key: str) -> str:
     k = re.sub(r"[^a-z0-9]+", "_", str(key).strip().lower()).strip("_")
     return k[:40]
