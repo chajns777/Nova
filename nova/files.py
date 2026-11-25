@@ -248,7 +248,7 @@ def ingest(data: bytes, original_name: str) -> dict:
     upload_root = os.path.realpath(UPLOAD_DIR)
     stem = os.path.join(upload_root, fid)
     ext = os.path.splitext(name)[1].lower()
-    path = f"{stem}{ext}"
+    path = os.path.realpath(f"{stem}{ext}")
     if os.path.commonpath([upload_root, path]) != upload_root:
         raise ValueError("Invalid upload path")
     with open(path, "wb") as f:
