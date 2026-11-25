@@ -111,8 +111,8 @@
     s = esc(s).replace(/`([^`\n]+)`/g, (m, c) => { codes.push(c); return `\u0001${codes.length - 1}\u0001`; });
     s = s.replace(/\*\*([^*\n]+)\*\*/g, '<strong>$1</strong>')
       .replace(/(^|[^*\w])\*([^*\s][^*\n]*?)\*(?!\w)/g, '$1<em>$2</em>')
-      .replace(/\[([^\]\n]+)\]\((https?:\/\/[^\s)]+)\)/g, '<a href="$2" target="_blank" rel="noopener">$1</a>')
-      .replace(/(^|[\s(])(https?:\/\/[^\s<)]+)/g, '$1<a href="$2" target="_blank" rel="noopener">$2</a>');
+      .replace(/\[([^\]\n]+)\]\((https?:\/\/[^\s)]+)\)/g, '<a href="$2" target="_blank" rel="noopener noreferrer">$1</a>')
+      .replace(/(^|[\s(])(https?:\/\/[^\s<)]+)/g, '$1<a href="$2" target="_blank" rel="noopener noreferrer">$2</a>');
     return s.replace(/\u0001(\d+)\u0001/g, (m, i) => `<code>${codes[i]}</code>`);
   }
   function md(src) {
@@ -227,7 +227,7 @@
     }[s.status] || s.model;
     pillText.innerHTML = esc(label) + (s.status === 'ready' && s.tps ? ` <span class="tps">· ${s.tps} tok/s</span>` : '');
     if (s.status === 'offline') {
-      showBanner('offline', `<b>I can’t reach Ollama.</b> Install it from <a href="https://ollama.com/download" target="_blank" rel="noopener">ollama.com/download</a>, start it, and I’ll wake up on my own.`);
+      showBanner('offline', `<b>I can’t reach Ollama.</b> Install it from <a href="https://ollama.com/download" target="_blank" rel="noopener noreferrer">ollama.com/download</a>, start it, and I’ll wake up on my own.`);
     } else if (s.status === 'missing') {
       showBanner('missing:' + s.model, `<b>One-time setup:</b> I need to download my brain (<code>${esc(s.model)}</code>, a few GB).${pullRow(s.model, 'Download now')}`);
     } else {
