@@ -52,7 +52,6 @@ def save_json(path: str, data: dict):
 
 
 def load_json(path: str, default: dict) -> dict:
-    """Loads a json file, filling in any missing keys. Creates it if missing."""
     data = {}
     if os.path.exists(path):
         try:
