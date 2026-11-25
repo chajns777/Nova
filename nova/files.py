@@ -81,7 +81,6 @@ def _read_html(path: str) -> str:
 
 
 def _read_pdf(path: str, out_stem: str):
-    """Returns (text, page_images, note)."""
     text, pages, images, note = "", 0, [], ""
     try:
         from pypdf import PdfReader
@@ -211,7 +210,6 @@ def _video_frames(path: str, out_stem: str):
 
 
 def prepare_image(path: str, out_path: str, max_side: int = 1024) -> str:
-    """Shrink big images so the vision model answers faster."""
     try:
         from PIL import Image
         im = Image.open(path)
@@ -231,7 +229,6 @@ def prepare_image(path: str, out_path: str, max_side: int = 1024) -> str:
 
 
 def ingest(data: bytes, original_name: str) -> dict:
-    """Save an upload and extract what Nova can read. Returns the file record."""
     name = safe_name(original_name)
     fid = uuid.uuid4().hex[:10]
     stem = os.path.join(UPLOAD_DIR, fid)
@@ -287,7 +284,6 @@ def full_text(rec: dict) -> str:
 
 
 def best_chunks(text: str, query: str, budget: int = 5000, size: int = 900) -> str:
-    """Pick the parts of a long document that best match the question."""
     if len(text) <= budget:
         return text
     paras = re.split(r"\n\s*\n|\n(?=---)", text)
