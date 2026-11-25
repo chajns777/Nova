@@ -24,11 +24,12 @@ memory.json layout
 """
 
 import math
+import os
 import re
 import threading
 import time
 
-from .config import MEMORY_FILE, CONFIG, load_json, save_json
+from .config import MEMORY_FILE, CONFIG, UPLOAD_DIR, load_json, save_json
 
 DEFAULT_MEMORY = {
     "history": [],
@@ -65,22 +66,109 @@ class Memory:
         self._migrate()
 
     def _migrate(self):
-        d = self.data
-        for k, v in DEFAULT_MEMORY.items():
-            d.setdefault(k, type(v)() if isinstance(v, (list, dict)) else v)
-        if not isinstance(d["user_facts"], dict):
-            d["user_facts"] = {}
-        top = max([m.get("id", 0) for m in d["history"]] + [0])
-        for m in d["history"]:
-            if "id" not in m:
-                top += 1
-                m["id"] = top
-            m.setdefault("ts", time.time())
-        d["next_id"] = max(d.get("next_id", 1), top + 1)
-        d["files"] = [f for f in d["files"]
-                      if isinstance(f, dict) and all(k in f for k in ("id", "name", "kind", "path"))]
-        for n in d["notes"]:
-            n.setdefault("id", self._take_id())
+        d = self.data if isinstance(self.data, dict) else {}
+        for key, default in DEFAULT_MEMORY.items():
+            if key not in d or not isinstance(d[key], type(default)):
+                if key in ("history", "notes", "files", "version_history"):
+                    d[key] = []
+                elif key == "user_facts":
+                    d[key] = {}
+                elif key == "summary":
+                    d[key] = ""
+                elif key == "summary_upto":
+                    d[key] = 0
+                elif key == "next_id":
+                    d[key] = 1
+        history = []
+        for item in d["history"]:
+            if not isinstance(item, dict) or item.get("role") not in ("user", "assistant"):
+                continue
+            content = item.get("content", "")
+            if not isinstance(content, str):
+                continue
+            try:
+                mid = int(item.get("id", 0))
+            except (TypeError, ValueError):
+                mid = 0
+            try:
+                ts = float(item.get("ts", time.time()))
+                if not math.isfinite(ts):
+                    ts = time.time()
+            except (TypeError, ValueError, OverflowError):
+                ts = time.time()
+            history.append({"id": max(0, mid), "role": item["role"], "content": content[:100_000],
+                            "ts": ts, "files": item.get("files", []) if isinstance(item.get("files", []), list) else []})
+        d["history"] = history[-300:]
+        facts = {}
+        for k, v in d["user_facts"].items():
+            if isinstance(k, str) and isinstance(v, (str, int, float)):
+                facts[norm_key(k)] = str(v)[:160]
+        d["user_facts"] = {k: v for k, v in facts.items() if k} 
+        notes = []
+        for item in d["notes"]:
+            if not isinstance(item, dict) or not isinstance(item.get("text"), str):
+                continue
+            try:
+                nid = int(item.get("id", 0))
+            except (TypeError, ValueError):
+                nid = 0
+            raw_ts = item.get("ts", time.time())
+            try:
+                ts = float(raw_ts)
+                if not math.isfinite(ts):
+                    ts = time.time()
+            except (TypeError, ValueError, OverflowError):
+                ts = time.time()
+            notes.append({"id": max(0, nid), "kind": str(item.get("kind", "note"))[:40],
+                          "text": item["text"][:700], "source": str(item.get("source", ""))[:1000],
+                          "ts": ts})
+        d["notes"] = notes[-MAX_NOTES:]
+        def safe_upload_path(value):
+            if not isinstance(value, str) or not value:
+                return None
+            root = os.path.realpath(UPLOAD_DIR)
+            candidate = os.path.realpath(value)
+            try:
+                if os.path.commonpath((root, candidate)) != root:
+                    return None
+            except ValueError:
+                return None
+            return candidate
+
+        files = []
+        for item in d["files"]:
+            if not isinstance(item, dict) or not all(isinstance(item.get(k), str)
+                                                     for k in ("id", "name", "kind", "path")):
+                continue
+            path = safe_upload_path(item.get("path"))
+            text_path = safe_upload_path(item.get("text_path"))
+            if not path or not text_path:
+                continue
+            if not os.path.isfile(path) or not os.path.isfile(text_path):
+                continue
+            clean = dict(item)
+            clean["path"] = path
+            clean["text_path"] = text_path
+            raw_images = item.get("images", [])
+            clean_images = []
+            if isinstance(raw_images, list):
+                for image_path in raw_images[:12]:
+                    checked = safe_upload_path(image_path)
+                    if checked and os.path.isfile(checked):
+                        clean_images.append(checked)
+            clean["images"] = clean_images
+            files.append(clean)
+        d["files"] = files[-40:]
+        d["version_history"] = [str(x)[:500] for x in d["version_history"] if isinstance(x, (str, int, float))][-200:]
+        d["summary"] = str(d["summary"])[:1800]
+        try:
+            d["summary_upto"] = max(0, int(d["summary_upto"]))
+            next_id = max(1, int(d["next_id"]))
+        except (TypeError, ValueError):
+            d["summary_upto"], next_id = 0, 1
+        highest = max([m["id"] for m in d["history"]] + [n["id"] for n in d["notes"]] + [0])
+        d["next_id"] = max(next_id, highest + 1)
+        self.data = d
         self.save()
 
     def _take_id(self) -> int:
@@ -173,8 +261,8 @@ class Memory:
         with self.lock:
             notes = self.data["notes"]
             for n in notes:
-                if n["text"].lower() == text.lower():
-                    return n["id"]
+                if isinstance(n, dict) and isinstance(n.get("text"), str) and n["text"].lower() == text.lower():
+                    return int(n.get("id", 0))
             nid = self._take_id()
             notes.append({"id": nid, "kind": kind, "text": text, "source": source, "ts": time.time()})
             if len(notes) > MAX_NOTES:

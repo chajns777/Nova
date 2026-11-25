@@ -17,6 +17,7 @@
 import json
 import os
 import threading
+import tempfile
 
 PKG_DIR = os.path.dirname(os.path.abspath(__file__))
 BASE_DIR = os.path.dirname(PKG_DIR)
@@ -58,11 +59,30 @@ _lock = threading.RLock()
 
 
 def save_json(path: str, data: dict):
+    directory = os.path.dirname(os.path.abspath(path))
+    os.makedirs(directory, exist_ok=True)
     with _lock:
-        tmp = path + ".tmp"
-        with open(tmp, "w", encoding="utf-8") as f:
-            json.dump(data, f, indent=4, ensure_ascii=False)
-        os.replace(tmp, path)
+        fd, tmp = tempfile.mkstemp(prefix=".nova-", suffix=".tmp", dir=directory)
+        try:
+            try:
+                os.chmod(tmp, 0o600)
+            except OSError:
+                pass
+            with os.fdopen(fd, "w", encoding="utf-8") as f:
+                json.dump(data, f, indent=4, ensure_ascii=False)
+                f.flush()
+                os.fsync(f.fileno())
+            os.replace(tmp, path)
+            try:
+                os.chmod(path, 0o600)
+            except OSError:
+                pass
+        finally:
+            try:
+                if os.path.exists(tmp):
+                    os.remove(tmp)
+            except OSError:
+                pass
 
 
 def load_json(path: str, default: dict) -> dict:
@@ -73,7 +93,7 @@ def load_json(path: str, default: dict) -> dict:
                 data = json.load(f)
             if not isinstance(data, dict):
                 data = {}
-        except (json.JSONDecodeError, OSError):
+        except (json.JSONDecodeError, OSError, UnicodeDecodeError):
             print(f"[warning] {os.path.basename(path)} was unreadable, using defaults.")
             data = {}
     merged = {**default, **data}

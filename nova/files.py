@@ -38,7 +38,7 @@ TEXT_EXT = {".txt", ".md", ".markdown", ".log", ".json", ".jsonl", ".yaml", ".ym
             ".pyw", ".java", ".c", ".h", ".cpp", ".hpp", ".cs", ".go", ".rs", ".rb", ".php", ".sh", ".bat",
             ".ps1", ".sql", ".lua", ".kt", ".swift", ".r", ".tex", ".rtf", ".env", ".gitignore", ".srt", ".vtt"}
 MAX_STORE_CHARS = 2_000_000
-MAX_UPLOAD_BYTES = 300 * 1024 * 1024
+MAX_UPLOAD_BYTES = 50 * 1024 * 1024  # bounded in-memory upload pipeline
 
 
 def kind_of(name: str) -> str:
@@ -75,9 +75,21 @@ def human_size(n: int) -> str:
             return f"{n:.0f} {unit}" if unit == "B" else f"{n:.1f} {unit}"
         n /= 1024
 
+
+def _assert_within_upload_dir(path: str) -> str:
+    root = os.path.realpath(UPLOAD_DIR)
+    candidate = os.path.realpath(path)
+    try:
+        if os.path.commonpath((root, candidate)) != root:
+            raise ValueError("File path is outside the uploads directory.")
+    except ValueError:
+        raise ValueError("File path is outside the uploads directory.")
+    return candidate
+
 def _read_text(path: str) -> str:
     path = _assert_within_upload_dir(path)
-    raw = open(path, "rb").read(MAX_STORE_CHARS * 2)
+    with open(path, "rb") as f:
+        raw = f.read(MAX_STORE_CHARS * 2)
     for enc in ("utf-8-sig", "utf-16", "cp1252"):
         try:
             return raw.decode(enc)[:MAX_STORE_CHARS]
@@ -224,46 +236,6 @@ def _read_xlsx(path: str) -> str:
         wb.close()
 
 
-def _read_docx(path: str) -> str:
-    import docx
-    from docx.table import Table
-    from docx.text.paragraph import Paragraph
-    d = docx.Document(path)
-    out = []
-    for child in d.element.body.iterchildren():
-        tag = child.tag.rsplit("}", 1)[-1]
-        if tag == "p":
-            p = Paragraph(child, d)
-            t = p.text.strip()
-            if not t:
-                continue
-            style = (p.style.name or "") if p.style is not None else ""
-            if style.startswith("Heading"):
-                level = re.sub(r"\D", "", style) or "1"
-                out.append("#" * min(int(level), 4) + " " + t)
-            else:
-                out.append(t)
-        elif tag == "tbl":
-            for row in Table(child, d).rows:
-                out.append(" | ".join(c.text.strip().replace("\n", " ") for c in row.cells))
-    return "\n".join(out)
-
-
-def _read_xlsx(path: str) -> str:
-    from openpyxl import load_workbook
-    wb = load_workbook(path, read_only=True, data_only=True)
-    out = []
-    for ws in wb.worksheets[:8]:
-        rows, count = [], 0
-        for row in ws.iter_rows(values_only=True):
-            count += 1
-            if count <= 60:
-                rows.append("\t".join("" if v is None else str(v) for v in row[:20]))
-            if count >= 20000:
-                break
-        out.append(f"## Sheet: {ws.title} ({count}{'+' if count >= 20000 else ''} rows)\n" + "\n".join(rows))
-    return "\n\n".join(out)
-
 
 def _read_csv(path: str) -> str:
     text = _read_text(path)
@@ -303,13 +275,22 @@ def _video_frames(path: str, out_stem: str):
     fps = cap.get(cv2.CAP_PROP_FPS) or 0
     w, h = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH) or 0), int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT) or 0)
     frames = []
+    if w <= 0 or h <= 0 or w * h > 40_000_000:
+        cap.release()
+        return [], "Video dimensions are invalid or exceed the 40-megapixel safety limit."
+    if fps > 0 and total / fps > 2 * 60 * 60:
+        cap.release()
+        return [], "Video exceeds the 2-hour processing limit."
     for i in range(4):
         cap.set(cv2.CAP_PROP_POS_FRAMES, int(total * (i + 0.5) / 4) if total else 0)
         ok, frame = cap.read()
         if ok:
-            p = f"{out_stem}.frame{i + 1}.jpg"
-            cv2.imwrite(p, frame)
-            frames.append(p)
+            if frame.shape[1] * frame.shape[0] > 4_000_000:
+                scale = (4_000_000 / (frame.shape[1] * frame.shape[0])) ** 0.5
+                frame = cv2.resize(frame, (max(1, int(frame.shape[1] * scale)), max(1, int(frame.shape[0] * scale))))
+            p = _assert_within_upload_dir(f"{out_stem}.frame{i + 1}.jpg")
+            if cv2.imwrite(p, frame):
+                frames.append(p)
     cap.release()
     dur = f"{total / fps:.0f}s" if fps and total else "unknown length"
     return frames, f"Video {w}x{h}, {dur}. I'm looking at {len(frames)} frames spread across it."
@@ -317,8 +298,12 @@ def _video_frames(path: str, out_stem: str):
 
 def prepare_image(path: str, out_path: str, max_side: int = 1024) -> str:
     try:
-        from PIL import Image
+        from PIL import Image, ImageFile
+        Image.MAX_IMAGE_PIXELS = 20_000_000
+        ImageFile.LOAD_TRUNCATED_IMAGES = False
         im = Image.open(path)
+        if im.width * im.height > 20_000_000:
+            raise ValueError("Image dimensions exceed the 20-megapixel safety limit.")
         im.seek(0)
         if im.mode in ("RGBA", "LA", "P"):
             im = im.convert("RGBA")
@@ -330,19 +315,22 @@ def prepare_image(path: str, out_path: str, max_side: int = 1024) -> str:
         im.thumbnail((max_side, max_side))
         im.save(out_path, "JPEG", quality=85)
         return out_path
-    except Exception:
-        return path
+    except Exception as exc:
+        raise ValueError(f"Image could not be safely decoded: {type(exc).__name__}") from exc
 
 
 def ingest(data: bytes, original_name: str) -> dict:
+    if not isinstance(data, (bytes, bytearray)) or not data:
+        raise ValueError("Empty upload.")
+    if len(data) > MAX_UPLOAD_BYTES:
+        raise ValueError("Upload exceeds the 50 MB limit.")
     name = safe_name(original_name)
-    fid = uuid.uuid4().hex[:10]
+    fid = uuid.uuid4().hex
     upload_root = os.path.realpath(UPLOAD_DIR)
     stem = os.path.join(upload_root, fid)
     ext = os.path.splitext(name)[1].lower()
-    path = os.path.realpath(f"{stem}{ext}")
-    if os.path.commonpath([upload_root, path]) != upload_root:
-        raise ValueError("Invalid upload path")
+    path = _assert_within_upload_dir(f"{stem}{ext}")
+    stem = _assert_within_upload_dir(stem)
     with open(path, "wb") as f:
         f.write(data)
 
@@ -364,9 +352,10 @@ def ingest(data: bytes, original_name: str) -> dict:
         elif kind == "video":
             images, note = _video_frames(path, stem)
         elif kind == "archive":
+            _check_zip_bomb(path)
             with zipfile.ZipFile(path) as z:
-                names = z.namelist()
-            text = f"Zip with {len(names)} items:\n" + "\n".join(names[:200])
+                names = [i.filename for i in z.infolist() if not i.is_dir()]
+            text = f"Zip with {len(names)} items (contents not extracted):\n" + "\n".join(names[:200])
         elif kind == "text":
             text = _read_html(path) if ext in (".html", ".htm") else _read_text(path)
         else:
@@ -379,9 +368,7 @@ def ingest(data: bytes, original_name: str) -> dict:
         from . import codecheck
         check = codecheck.check(text, ext, name)
 
-    text_path = os.path.realpath(f"{stem}.txt")
-    if os.path.commonpath([upload_root, text_path]) != upload_root:
-        raise ValueError("Invalid text path")
+    text_path = _assert_within_upload_dir(f"{stem}.txt")
     with open(text_path, "w", encoding="utf-8") as f:
         f.write(text)
     return {"id": fid, "name": name, "kind": kind, "size": len(data), "path": path, "text_path": text_path,
@@ -390,7 +377,9 @@ def ingest(data: bytes, original_name: str) -> dict:
 
 def full_text(rec: dict) -> str:
     try:
-        return open(rec["text_path"], "r", encoding="utf-8").read()
+        path = _assert_within_upload_dir(rec["text_path"])
+        with open(path, "r", encoding="utf-8") as f:
+            return f.read(MAX_STORE_CHARS)
     except OSError:
         return ""
 

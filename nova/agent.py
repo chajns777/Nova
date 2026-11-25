@@ -49,7 +49,7 @@ def system_prompt() -> str:
         "code, point to the real problems with line numbers and give the fix.\n"
         "- To act (search the web, read pages, make files, check code, learn skills) call the tools you're given, "
         "then tell the user the result in a sentence or two.\n"
-        "- To learn a new skill: research it online, teach yourself with learn_new_tool, try it, then save_knowledge.\n"
+        "- Skill source can be stored for review, but Nova does not execute AI-written Python skills.\n"
         "- If the user asks you to change how you talk, call update_style."
     )
 
@@ -281,8 +281,14 @@ def run_turn(user_text: str, file_ids: list, emit):
             messages.append({"role": "assistant", "content": text,
                              "tool_calls": [{"function": {"name": c["name"], "arguments": c["args"]}} for c in calls]})
             for c in calls:
+                if CANCEL.is_set():
+                    break
                 emit({"t": "status", "d": _status(c["name"], c["args"]), "tool": c["name"]})
+                if CANCEL.is_set():
+                    break
                 result = tools.execute(c["name"], c["args"])
+                if CANCEL.is_set():
+                    break
                 if c["name"] == "learn_new_tool" and result.startswith("SUCCESS"):
                     emit({"t": "skills"})
                 if c["name"] in ("remember_fact", "forget_fact", "save_knowledge"):
@@ -290,8 +296,8 @@ def run_turn(user_text: str, file_ids: list, emit):
                 if c["name"] == "update_style":
                     emit({"t": "state"})
                 messages.append({"role": "tool", "tool_name": c["name"], "content": result[:3500]})
-            if any(c["name"] == "learn_new_tool" for c in calls):  
-                tool_schemas = tools.schemas_for(list(groups) + ["learn"], user_text)
+            if CANCEL.is_set():
+                break
         else:
             if not reply.strip():
                 reply = "I hit my step limit before finishing - try splitting that into smaller asks."
@@ -299,6 +305,8 @@ def run_turn(user_text: str, file_ids: list, emit):
         if used_tools and not reply.strip() and not CANCEL.is_set():
             messages.append({"role": "user", "content": "Now tell me the result in a sentence or two."})
             for kind, val in LLM_.stream_chat(messages, tools=None):
+                if CANCEL.is_set():
+                    break
                 if kind == "content":
                     reply += val
                     emit({"t": "token", "d": val})

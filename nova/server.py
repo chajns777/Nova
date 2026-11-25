@@ -21,6 +21,7 @@ import os
 import secrets
 import threading
 import time
+import ipaddress
 
 from http.cookies import SimpleCookie
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -62,6 +63,10 @@ class Handler(BaseHTTPRequestHandler):
     server_version = "Nova"
     protocol_version = "HTTP/1.0"
 
+    def setup(self):
+        super().setup()
+        self.connection.settimeout(60)
+
     def log_message(self, *a):
         pass
 
@@ -71,14 +76,27 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Content-Type", "application/json; charset=utf-8")
         self.send_header("Content-Length", str(len(body)))
         self.send_header("Cache-Control", "no-store")
+        self.send_header("X-Content-Type-Options", "nosniff")
+        self.send_header("Referrer-Policy", "no-referrer")
+        self.send_header("X-Frame-Options", "DENY")
         self.end_headers()
         self.wfile.write(body)
 
     def _body(self, limit=1_000_000) -> bytes:
-        n = int(self.headers.get("Content-Length") or 0)
-        if n > limit:
+        raw = self.headers.get("Content-Length")
+        if raw is None:
+            raise ValueError("missing content length")
+        if not raw.isdigit():
+            raise ValueError("invalid content length")
+        n = int(raw)
+        if n < 0 or n > limit:
             raise ValueError("too large")
-        return self.rfile.read(n) if n else b""
+        if self.headers.get("Transfer-Encoding"):
+            raise ValueError("transfer encoding is not supported")
+        data = self.rfile.read(n) if n else b""
+        if len(data) != n:
+            raise ValueError("incomplete request body")
+        return data
 
     def _read_json(self) -> dict:
         try:
@@ -88,16 +106,42 @@ class Handler(BaseHTTPRequestHandler):
             return {}
 
     def _host_ok(self) -> bool:
-        host = (self.headers.get("Host") or "").split(":")[0]
-        return host in ("127.0.0.1", "localhost")
+        expected_port = self.server.server_address[1]
+        host_header = (self.headers.get("Host") or "").strip()
+        try:
+            parsed = urlparse("http://" + host_header)
+            host = (parsed.hostname or "").lower()
+            if host not in ("127.0.0.1", "localhost"):
+                return False
+            if parsed.username or parsed.password or parsed.path not in ("", "/"):
+                return False
+            if parsed.port != expected_port:
+                return False
+        except ValueError:
+            return False
+
+        origin = self.headers.get("Origin")
+        if origin:
+            try:
+                o = urlparse(origin)
+                if (o.scheme != "http" or (o.hostname or "").lower() not in ("127.0.0.1", "localhost")
+                        or o.port != expected_port or o.username or o.password
+                        or o.path not in ("", "/") or o.query or o.fragment):
+                    return False
+            except ValueError:
+                return False
+        return True
 
     def _authed(self, query) -> bool:
         tok = self.headers.get("X-Nova-Token") or (query.get("t") or [""])[0]
         if not tok and self.headers.get("Cookie"):
-            cookie = SimpleCookie()
-            cookie.load(self.headers["Cookie"])
-            if "nova_session" in cookie:
-                tok = cookie["nova_session"].value
+            try:
+                cookie = SimpleCookie()
+                cookie.load(self.headers["Cookie"])
+                if "nova_session" in cookie:
+                    tok = cookie["nova_session"].value
+            except Exception:
+                return False
         return bool(tok) and secrets.compare_digest(tok, TOKEN)
 
     def _sse_start(self):
@@ -117,6 +161,11 @@ class Handler(BaseHTTPRequestHandler):
             return False
 
     def do_GET(self):
+        if not self._host_ok():
+            return self._json({"error": "bad host"}, 403)
+        url = urlparse(self.path)
+        path = url.path
+        q = parse_qs(url.query)
         if path in ("/", "/index.html"):
             if not self._authed(q):
                 return self._json({"error": "unauthorised"}, 401)
@@ -128,6 +177,9 @@ class Handler(BaseHTTPRequestHandler):
             self.send_header("Content-Length", str(len(body)))
             self.send_header("Set-Cookie", f"nova_session={TOKEN}; HttpOnly; SameSite=Strict; Path=/")
             self.send_header("Cache-Control", "no-store")
+            self.send_header("Referrer-Policy", "no-referrer")
+            self.send_header("X-Content-Type-Options", "nosniff")
+            self.send_header("X-Frame-Options", "DENY")
             self.end_headers()
             self.wfile.write(body)
             return
@@ -140,6 +192,9 @@ class Handler(BaseHTTPRequestHandler):
             self.send_header("Content-Type", content_type)
             self.send_header("Content-Length", str(len(body)))
             self.send_header("Cache-Control", "no-store")
+            self.send_header("Referrer-Policy", "no-referrer")
+            self.send_header("X-Content-Type-Options", "nosniff")
+            self.send_header("X-Frame-Options", "DENY")
             self.end_headers()
             self.wfile.write(body)
             return
@@ -165,8 +220,11 @@ class Handler(BaseHTTPRequestHandler):
                 return self._json({"error": "not found"}, 404)
             fp = (rec.get("images") or [rec["path"]])[0] if rec["kind"] == "image" else rec["path"]
             try:
+                fp = filelib._assert_within_upload_dir(fp)
                 with open(fp, "rb") as f:
-                    body = f.read()
+                    body = f.read(50 * 1024 * 1024 + 1)
+                if len(body) > 50 * 1024 * 1024:
+                    return self._json({"error": "file too large"}, 413)
             except OSError:
                 return self._json({"error": "gone"}, 404)
             ext = os.path.splitext(fp)[1].lower()
@@ -216,16 +274,24 @@ class Handler(BaseHTTPRequestHandler):
             return self._json({"ok": True})
 
         if path == "/api/upload":
-            name = unquote((q.get("name") or ["file"])[0])
+            if not self.server.upload_slots.acquire(blocking=False):
+                return self._json({"error": "another upload is being processed; try again shortly"}, 429)
             try:
-                data = self._body(filelib.MAX_UPLOAD_BYTES)
-            except ValueError:
-                return self._json({"error": "That file is too big (limit 300 MB)."}, 413)
-            if not data:
-                return self._json({"error": "empty file"}, 400)
-            rec = filelib.ingest(data, name)
-            MEM.add_file(rec)
-            return self._json({k: rec[k] for k in ("id", "name", "kind", "size", "chars", "note", "check")})
+                name = unquote((q.get("name") or ["file"])[0])[:240]
+                try:
+                    data = self._body(filelib.MAX_UPLOAD_BYTES)
+                except ValueError as exc:
+                    return self._json({"error": f"Upload rejected: {str(exc)[:160]} (limit {filelib.MAX_UPLOAD_BYTES // (1024 * 1024)} MB)."}, 413)
+                if not data:
+                    return self._json({"error": "empty file"}, 400)
+                try:
+                    rec = filelib.ingest(data, name)
+                    MEM.add_file(rec)
+                except (ValueError, OSError) as exc:
+                    return self._json({"error": str(exc)[:240]}, 400)
+                return self._json({k: rec[k] for k in ("id", "name", "kind", "size", "chars", "note", "check")})
+            finally:
+                self.server.upload_slots.release()
 
         if path == "/api/settings":
             data = self._read_json()
@@ -239,6 +305,8 @@ class Handler(BaseHTTPRequestHandler):
                         continue
                     if k == "speaking_style":
                         val = val[:300]
+                    if k in ("name", "model", "vision_model"):
+                        val = val[:120]
                     if k == "model" and val != CONFIG["model"]:
                         changed_model = True
                     CONFIG[k] = val
@@ -254,13 +322,19 @@ class Handler(BaseHTTPRequestHandler):
             if kind == "fact":
                 MEM.forget_fact(str(data.get("key", "")))
             elif kind == "note":
-                MEM.forget_note(int(data.get("id", 0)))
+                try:
+                    MEM.forget_note(int(data.get("id", 0)))
+                except (TypeError, ValueError, OverflowError):
+                    return self._json({"error": "invalid note id"}, 400)
             elif kind == "history":
                 MEM.clear_history()
             return self._json({"ok": True})
 
         if path == "/api/skills/rollback":
-            idx = int(self._read_json().get("index", 1))
+            try:
+                idx = int(self._read_json().get("index", 1))
+            except (TypeError, ValueError, OverflowError):
+                return self._json({"error": "invalid backup index"}, 400)
             return self._json({"message": tools.rollback(idx)})
 
         if path == "/api/pull":
@@ -285,12 +359,31 @@ class Handler(BaseHTTPRequestHandler):
 class NovaServer(ThreadingHTTPServer):
     daemon_threads = True
     allow_reuse_address = True
+    request_queue_size = 16
 
     def __init__(self, port=0, chrome="native"):
         super().__init__(("127.0.0.1", port), Handler)
         self.last_ping = None
         self.bye_at = None
-        self.chrome = chrome  
+        self.chrome = chrome
+        self.upload_slots = threading.BoundedSemaphore(2)
+        self.request_slots = threading.BoundedSemaphore(32)
+
+    def process_request(self, request, client_address):
+        if not self.request_slots.acquire(blocking=False):
+            request.close()
+            return
+        try:
+            super().process_request(request, client_address)
+        except Exception:
+            self.request_slots.release()
+            raise
+
+    def process_request_thread(self, request, client_address):
+        try:
+            super().process_request_thread(request, client_address)
+        finally:
+            self.request_slots.release()
 
     def watch_for_close(self):
         while True:
