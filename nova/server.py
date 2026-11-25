@@ -246,7 +246,6 @@ class NovaServer(ThreadingHTTPServer):
         self.chrome = chrome  
 
     def watch_for_close(self):
-        """Quit when the window is closed (UI says bye, or stops pinging for 5 minutes)."""
         while True:
             time.sleep(1)
             now = time.time()
