@@ -38,7 +38,7 @@ TEXT_EXT = {".txt", ".md", ".markdown", ".log", ".json", ".jsonl", ".yaml", ".ym
             ".pyw", ".java", ".c", ".h", ".cpp", ".hpp", ".cs", ".go", ".rs", ".rb", ".php", ".sh", ".bat",
             ".ps1", ".sql", ".lua", ".kt", ".swift", ".r", ".tex", ".rtf", ".env", ".gitignore", ".srt", ".vtt"}
 MAX_STORE_CHARS = 2_000_000
-MAX_UPLOAD_BYTES = 50 * 1024 * 1024  # bounded in-memory upload pipeline
+MAX_UPLOAD_BYTES = 2048 * 1024 * 1024
 
 
 def kind_of(name: str) -> str:
