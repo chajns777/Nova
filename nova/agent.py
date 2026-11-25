@@ -73,7 +73,7 @@ def wants_action(groups) -> bool:
 
 
 class Background:
-    """Runs housekeeping (learning facts, summarising) only while Nova isn't busy chatting."""
+    
     def __init__(self):
         self.q = queue.Queue()
         threading.Thread(target=self._run, daemon=True).start()
@@ -98,7 +98,6 @@ PERSONAL = re.compile(r"\b(i am|i'm|im|my|i like|i love|i hate|i prefer|i work|i
 
 
 def learn_from_message(user_text: str):
-    """Pull durable facts about the user out of a message (runs quietly after the reply)."""
     known = ", ".join(MEM.data["user_facts"].keys()) or "none"
     raw = LLM_.complete(
         "You extract durable personal facts about the USER from their message. Output JSON only: "
@@ -149,7 +148,6 @@ def _status(name: str, args: dict) -> str:
 
 
 def _build_user_turn(text: str, recs: list, can_see: bool):
-    """Returns (message_dict, ctx_lines). Dynamic context goes in the last message so the prompt prefix stays cacheable."""
     ctx = [time.strftime("Now: %A %d %B %Y, %H:%M")]
     notes = MEM.retrieve(text)
     if notes:
@@ -201,7 +199,6 @@ def _build_user_turn(text: str, recs: list, can_see: bool):
 
 
 def run_turn(user_text: str, file_ids: list, emit):
-    """Answer one message. `emit(dict)` streams events to the UI. Returns the final reply text."""
     CANCEL.clear()
     BUSY.set()
     reply, used_tools, stats = "", False, {}
