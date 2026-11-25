@@ -11,7 +11,6 @@ import subprocess
 import sys
 import threading
 import time
-
 import ollama
 
 from .config import CONFIG
@@ -67,7 +66,6 @@ class LLM:
             return False
 
     def ensure_server(self, wait=20) -> bool:
-        """Start `ollama serve` in the background if it isn't running (and is installed)."""
         if self.ping():
             return True
         exe = shutil.which("ollama")
@@ -125,7 +123,6 @@ class LLM:
         return "vision" in self.capabilities(model or CONFIG["model"])
 
     def warmup(self):
-        """Load the model into memory so the first message is instant."""
         model = CONFIG["model"]
         if not self.ensure_server():
             self.state = "offline"
@@ -262,7 +259,6 @@ class LLM:
                 raise
 
     def complete(self, system: str, user: str, json_mode=False, max_tokens=300, model=None) -> str:
-        """Small non-streaming helper for background jobs (fact extraction, summaries)."""
         text = ""
         msgs = [{"role": "system", "content": system}, {"role": "user", "content": user}]
         for kind, val in self.stream_chat(msgs, model=model, fmt="json" if json_mode else None,
@@ -272,7 +268,6 @@ class LLM:
         return text.strip()
 
     def describe_image(self, image_paths, question: str) -> str:
-        """Ask a vision-capable model about one or more images."""
         model = CONFIG.get("vision_model") or CONFIG["model"]
         if not self.has_model(model):
             return f"(I can't look at images because the model '{model}' isn't installed.)"
