@@ -379,4 +379,4 @@ Nova has no automated test suite yet. A quick manual smoke test:
 
 ## Licence
 
-This project is licensed under the MIT Licence. See the [LICENSE](LICENSE) file for details.
+This project is licensed under the Apache License, Version 2.0. See the [LICENSE](LICENSE) file for details.
