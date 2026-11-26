@@ -15,6 +15,7 @@
  */
 
 /* Nova UI — terminal chat (dependency-free, works offline) */
+
 (() => {
   const TOKEN = document.querySelector('meta[name=nova-token]').content;
   const $ = (s, r = document) => r.querySelector(s);
